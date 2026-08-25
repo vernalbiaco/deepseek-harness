@@ -8,6 +8,11 @@
 
 *.pdf binary
 
+# A unified diff carries its own whitespace: context lines for blank lines are a
+# single space, which the trailing-whitespace gate would reject. The bytes must
+# survive verbatim for the diff to apply, so exempt the class rather than edit one.
+*.patch -whitespace
+
 # Pairing records are generated from the three confirmed owner-blob pairs.
 # The worktree-local installer registers the fail-closed driver command.
 *.i18n.yaml merge=dsh-translation-pairing
