@@ -50,7 +50,7 @@ services:
     ports:
       # web-proxy listens on 8080 inside this service's network namespace and
       # forwards to dsh web's loopback-only 127.0.0.1:3080; see docker/proxy.
-      - "3080:8080"
+      - "127.0.0.1:3080:8080"
 
   # Headless HTTP API: the same POST /api/<method> surface as the web service,
   # composed without any browser UI. The `api` profile in the dsh-home volume

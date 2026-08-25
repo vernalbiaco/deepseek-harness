@@ -1,5 +1,7 @@
 # dsh-llm-local-token runtime patches
 
+English | [中文](README.zh.md)
+
 Local fixes for the third-party [`dsh-llm-local-token`](https://github.com/tianxia--/dsh-llm-local-token) plugin, pinned at **1.3.2** (the latest published version as of 2026-08-26).
 
 These are **not** pnpm dependency patches. The sibling `patches/*.patch` files belong to `patchedDependencies` in `pnpm-workspace.yaml` and are applied at install time to workspace dependencies. The files here replace two modules of a plugin installed at runtime into a dsh profile, which lives in the `dsh-home` Docker volume rather than in this repository's `node_modules`. Nothing applies them automatically; `make docker-patch-plugins` does.
