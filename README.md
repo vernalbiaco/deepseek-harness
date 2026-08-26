@@ -61,6 +61,8 @@ docker compose up -d api api-proxy                    # API at http://127.0.0.1:
 
 Every published port binds the host loopback. That surface enforces a `Host`-header reachability fence rather than authentication, so a routable address would let anyone who reaches it run code inside the container.
 
+Reaching that surface from elsewhere means mounting [`@deepseek-ai/dsh-api-key-auth`](packages/api/key-auth/README.md) on the profile the remote-facing service runs — the `api` service's, not the Web UI's — so every `/api` call and every event WebSocket must present a bearer key, and no keyed caller reaches the settings or credential methods. The Web UI cannot authenticate through it at all, because a browser cannot set an `Authorization` header on a WebSocket handshake, so a gated profile serves programmatic clients only. Mounting the plugin on the wrong profile, or exposing the ungated one, silently reopens the configuration plane to whoever can reach the port, and nothing in the code detects that.
+
 Mounting the Claude Code and Codex credential directories lets [`dsh-llm-local-token`](https://github.com/tianxia--/dsh-llm-local-token) offer those subscriptions as model routes. The mounts are read-write because the plugin refreshes each token near expiry and writes it back to the file the host CLI reads. [`patches/dsh-llm-local-token/`](patches/dsh-llm-local-token/README.md) carries the fixes that release requires on Linux, and `make docker-patch-plugins` reapplies them after any reinstall.
 
 ## Community and support
