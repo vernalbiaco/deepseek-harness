@@ -156,16 +156,28 @@ describe('api-key-auth gate', () => {
     await fiber.await()
     const info = vi.spyOn(ctx.logger, 'info')
 
-    // A WebSocket upgrade carries no `method`; every site must fall back to "upgrade".
+    // A WebSocket upgrade carries no `method`; every site falls back to NO_METHOD.
     const upgrade = { transport: 'websocket' as const, headers: new Headers() }
 
     await gate().authorize(upgrade)
-    expect(info).toHaveBeenLastCalledWith('api-key-auth: denied none websocket upgrade (no credential)')
+    expect(info).toHaveBeenLastCalledWith('api-key-auth: denied none websocket - (no credential)')
 
     await gate().authorize({ ...upgrade, headers: new Headers({ authorization: 'Bearer wrong' }) })
-    expect(info).toHaveBeenLastCalledWith('api-key-auth: denied none websocket upgrade (unrecognized)')
+    expect(info).toHaveBeenLastCalledWith('api-key-auth: denied none websocket - (unrecognized)')
 
     await gate().authorize({ ...upgrade, headers: new Headers({ authorization: 'Bearer secret-a' }) })
-    expect(info).toHaveBeenLastCalledWith('api-key-auth: admitted laptop websocket upgrade')
+    expect(info).toHaveBeenLastCalledWith('api-key-auth: admitted laptop websocket -')
+  })
+
+  it('falls back to the same placeholder for an HTTP request to bare `/api`', async () => {
+    const { ctx, gate } = harness({ A: 'secret-a' })
+    const fiber = ctx.plugin(plugin, { keys: [{ name: 'laptop', secret: 'A' }] })
+    await fiber.await()
+    const info = vi.spyOn(ctx.logger, 'info')
+
+    // `/api` itself carries nothing under the prefix, so the gate sees no
+    // `method` on an HTTP request too — the line must not claim an upgrade.
+    await gate().authorize({ transport: 'http', headers: new Headers() })
+    expect(info).toHaveBeenLastCalledWith('api-key-auth: denied none http - (no credential)')
   })
 })

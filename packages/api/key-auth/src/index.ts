@@ -89,6 +89,12 @@ function validateKeys(keys: readonly KeyConfig[]): ResolvedKeyConfig[] {
 }
 
 /**
+ * Stands in for the method in an audit line that has none: a WebSocket upgrade,
+ * or an HTTP request to bare `/api`, which carries no method under the prefix.
+ */
+const NO_METHOD = '-'
+
+/**
  * Register the key gate.
  * @param ctx - Host plugin context.
  * @param config - resolved plugin config.
@@ -100,17 +106,17 @@ export function apply(ctx: Context, config: Config): void {
   const authorize = async (request: ApiGateRequest): Promise<ApiGateDecision> => {
     const presented = bearerSecret(request.headers)
     if (presented === undefined) {
-      ctx.logger.info(`api-key-auth: denied none ${request.transport} ${request.method ?? 'upgrade'} (no credential)`)
+      ctx.logger.info(`api-key-auth: denied none ${request.transport} ${request.method ?? NO_METHOD} (no credential)`)
       return { allow: false, status: 401, reason: 'missing bearer credential' }
     }
     for (const key of keys) {
       const resolved = await ctx.credentials.resolve(key.secret)
       if (resolved === undefined) continue
       if (!secretsMatch(presented, resolved.value)) continue
-      ctx.logger.info(`api-key-auth: admitted ${key.name} ${request.transport} ${request.method ?? 'upgrade'}`)
+      ctx.logger.info(`api-key-auth: admitted ${key.name} ${request.transport} ${request.method ?? NO_METHOD}`)
       return { allow: true, principal: key.name, privileged: false }
     }
-    ctx.logger.info(`api-key-auth: denied none ${request.transport} ${request.method ?? 'upgrade'} (unrecognized)`)
+    ctx.logger.info(`api-key-auth: denied none ${request.transport} ${request.method ?? NO_METHOD} (unrecognized)`)
     return { allow: false, status: 401, reason: 'unrecognized credential' }
   }
 
