@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-08-26-api-request-gates-and-key-authentication.md
-2026-08-26-api-request-gates-and-key-authentication.md: aa177a28ce27e3c3b29078842ca4971f4b478f53
-2026-08-26-api-request-gates-and-key-authentication.zh.md: 5ad73b232d521528639097ec7f8416b1083a7613
+2026-08-26-api-request-gates-and-key-authentication.md: 8482ece35f62f955bdd5ddc5a7d8d0cf51cf6202
+2026-08-26-api-request-gates-and-key-authentication.zh.md: b4153216465070b18e5828ac925043f8cb0ea575

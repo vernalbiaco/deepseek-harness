@@ -10,7 +10,7 @@ Status: implemented
 
 没有任何扩展点能弥合这一点。webserver 只派发一条匹配到的路由，没有中间件、没有 `next()`，重复注册还会抛错，因此插件只能遮蔽 `/api` 并让真正的处理器变得不可达。`/api` 通道上唯一的拦截器席位在所有已发布组合中都被 Typert 网关占据，而且拦截器运行于 RPC 派发内部，`events.mux` 与 `events.host` 这两个 WebSocket 升级请求根本不会进入其中。深度导入 `connection` 的内部实现来包装它，只在本工作区内可行，因为该包发布的是 `lib/` 而非 `src/`。
 
-第二个问题比第一个更持久。`PRIVILEGED_METHODS`——所有 `settings.*` 与 `credentials.*` 操作、`host.openPath`、`host.pickDirectory`、`agentPreset.*`——是通过以空列表调用信任防线来钉死的，其含义即为回环。隧道守护进程或反向代理会中继到回环地址，因此被中继的请求满足该限定。任何终结于 `127.0.0.1` 的远程访问方案，都会在无声中把配置平面交给远程调用方，其中包括读取凭据元数据与写入新凭据。仅仅认证调用方并不能解决此事：该检查无法区分被中继的请求与本地请求，因为在套接字层面已无可区分之物。
+第二个问题比第一个更持久。`PRIVILEGED_METHODS`——`settings.*` 与 `credentials.*` 操作、`host.openPath`、`host.pickDirectory`、`llm.discoverModels`，以及 `agentPreset` 的编辑类方法 `agentPreset.read`、`agentPreset.copy`、`agentPreset.openDocument` 与 `agentPreset.remove`（`agentPreset.list` 与预设的选取都不在其中）——是通过以空列表调用信任防线来钉死的，其含义即为回环。隧道守护进程或反向代理会中继到回环地址，因此被中继的请求满足该限定。任何终结于 `127.0.0.1` 的远程访问方案，都会在无声中把配置平面交给远程调用方，其中包括读取凭据元数据与写入新凭据。仅仅认证调用方并不能解决此事：该检查无法区分被中继的请求与本地请求，因为在套接字层面已无可区分之物。
 
 ## 决策
 
@@ -55,7 +55,7 @@ connection 不承载任何策略。它只机械地执行两条规则：拒绝即
 
 `/api` 的 HTTP 请求在 `createSharedFetchHandler`（[`rpc-host.ts`](../../../../packages/client/connection/src/rpc-host.ts)）内部、**先于拦截器选择**接受闸门审查，因此无论哪个目标认领该请求，通道上的每个请求都恰好被授权一次。若置于拦截器选择之后，拦截器的那些端点就会成为传输层上一个不带认证的席位：[`packages/api/gateway`](../../../../packages/api/gateway/README.md) 经由 [`packages/bundle/base/cordis.patch.yml`](../../../../packages/bundle/base/cordis.patch.yml) 在所有默认 Profile 中占据 `/api` 唯一的拦截器席位，于是被认领的端点将为匿名调用方派发。connection 的兜底处理器拿到的是放行裁决以及交给闸门的同一个 `method` 字符串，因此它的特权方法判定不可能读到与被授权者不同的方法。
 
-两个 WebSocket 升级处理器（[`index.ts`](../../../../packages/client/connection/src/index.ts)）都在信任防线之后调用 `authorizeApiRequest`，未获放行的裁决会在套接字层以 `403` 拒绝该升级——升级请求没有响应体可承载闸门自身的状态码。
+两个 WebSocket 升级处理器（[`index.ts`](../../../../packages/client/connection/src/index.ts)）都在信任防线之后调用 `authorizeApiRequest`，未获放行的裁决会以 `rejectWebSocketUpgrade` 写出的那个固定 `403 Forbidden` 响应拒绝该升级，因此以 `401` 拒绝的闸门在升级请求上仍表现为 `403`。
 
 被拒绝的 HTTP 请求以闸门给出的状态码作答，正文为其原因；`401` 还会附带 `WWW-Authenticate: Bearer`。
 
@@ -76,7 +76,7 @@ connection 不承载任何策略。它只机械地执行两条规则：拒绝即
         secret: DSH_KEY_CI
 ```
 
-`name` 是审计标签，必须唯一。`secret` 是一个[凭据引用](../../../../packages/credentials/credentials/README.md)。空的 `keys` 列表、重复的 `name` 以及格式错误的引用，都在加载期失败而非在首个请求时失败；解析不到任何值的引用会被跳过，而不是与一个缺失的密文相匹配——因此什么都拿不出来的调用方，最终收到的是与密文不被识别时相同的 `401`。
+`name` 是审计标签，必须唯一。`secret` 是一个[凭据引用](../../../../packages/credentials/credentials/README.md)。空的 `keys` 列表、重复的 `name` 以及格式错误的引用，都在加载期失败而非在首个请求时失败；解析不到任何值的引用会被跳过，而不是与一个缺失的密文相匹配，因此密文只与某个解析不到值的引用相对应的调用方，最终收到的是普通的 `401 unrecognized credential`。
 
 ### 部署
 
@@ -104,7 +104,7 @@ connection 不承载任何策略。它只机械地执行两条规则：拒绝即
 
 密钥闸门自身的测试覆盖了加载期失败（空列表、重名、格式错误的引用，且都不回显出问题的取值）、缺少凭据与凭据不被识别时的 `401`、以密钥名放行且从不授予特权、解析不到任何值的引用、轮换在下一个请求上生效、删除某个条目恰好吊销该密钥而其同伴仍然放行、配置的次序与默认次序、fiber 拆除时的注销，以及每次判定都会记录 principal 名称或 `none`、传输方式、方法与结果。
 
-一个真实组合测试经由 vendored Loader 把两份 cordis.yml 组合启动到监听中的回环套接字上，并以真实 HTTP 客户端与真实 `ws` 客户端穿越它们；两份组合只差一行，即闸门。它证明：无密钥的 `/api` 调用、无密钥地调用被 Gateway 认领的端点，以及无密钥地升级到任一下行通道，全部被拒绝，而带密钥的那一支成功；并且带密钥的调用方被拒绝调用 `credentials.describe`。未挂载闸门的那一支正是让最后这个 `403` 成为结论而非假象的东西：同一调用在那里成功并触达真实的凭据接缝，从而把「闸门收回了特权」与「信任防线拒绝了请求」区分开来。Gateway Remote 上的一个调用计数器证明，对被认领端点的拒绝发生在拦截器运行之前，而不是之后。
+一个真实组合测试经由 vendored Loader 把两份 cordis.yml 组合启动到监听中的回环套接字上，并以真实 HTTP 客户端与真实 `ws` 客户端穿越它们；两份组合只差一行，即闸门。它证明：无密钥的 `/api` 调用、无密钥地调用被 Gateway 认领的端点，以及无密钥地升级到任一下行通道，全部被拒绝，而带密钥的那一支成功；并且带密钥的调用方被拒绝调用 `credentials.describe`。未挂载闸门的那一支正是让最后这个 `403` 成为结论而非假象的东西：同一调用在那里成功并触达真实的凭据接缝，从而把「闸门收回了特权」与「信任防线拒绝了请求」区分开来。`RemoteFixture`（Gateway 所认领的测试用 Remote）上的一个调用计数器证明，对被认领端点的拒绝发生在拦截器运行之前，而不是之后。
 
 ## 后果
 
