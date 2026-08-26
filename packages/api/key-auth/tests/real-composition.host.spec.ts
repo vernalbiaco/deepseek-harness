@@ -2,10 +2,11 @@
  * REAL-composition coverage for the key gate: a test-only cordis.yml booted
  * through the vendored Loader binds a real HTTP server on loopback and mounts
  * the webserver, the local credential provider, an ApiProxy stand-in, the
- * connection transport, and this package's gate. Every assertion crosses that
- * listening socket with a real HTTP client and the real `ws` client — the
- * global `WebSocket` cannot set `Authorization`, so it admits no keyed arm and
- * cannot tell a rejected upgrade from a server that never listened.
+ * connection transport, the Typert registry and Gateway over a Remote fixture,
+ * and this package's gate. Every assertion crosses that listening socket with a
+ * real HTTP client and the real `ws` client — the global `WebSocket` cannot set
+ * `Authorization`, so it admits no keyed arm and cannot tell a rejected upgrade
+ * from a server that never listened.
  *
  * Each case runs against two compositions that differ in one row. The gated
  * one carries `dsh-api-key-auth`; the ungated one is otherwise identical and
@@ -25,6 +26,12 @@
  * downlinks pump, and its `credentials.describe` reads the real
  * `ctx.credentials` seam, so the ungated control arm observes the request
  * reaching the credential plane rather than a canned constant.
+ *
+ * The Gateway is the real shipped one, and it holds the single interceptor seat
+ * on the `/api` channel in every default profile. It is mounted here because an
+ * interceptor claims its endpoints ahead of that fallback: without a claimed
+ * endpoint in the composition, no arm crosses the socket into the path where an
+ * ungated interceptor would answer an anonymous caller.
  */
 
 import { once } from 'node:events'
@@ -41,6 +48,9 @@ import HttpServer from '@deepseek-ai/dsh-host-webserver'
 import LocalCredentialProvider from '@deepseek-ai/dsh-credentials-local'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import * as Connection from '@deepseek-ai/dsh-client-connection'
+import TypertRegistry from '@deepseek-ai/dsh-typert-registry'
+import TypertGateway from '@deepseek-ai/dsh-api-gateway'
+import { bindTypertRemote, Remote } from '@deepseek-ai/dsh-typert-protocol'
 import { HOST_EVENTS_PATH, MUX_EVENTS_PATH } from '@deepseek-ai/dsh-client-connection'
 import type {
   CredentialView, HostFrame, MuxFrame, RpcRequest, RpcResponse, ServerResponse,
@@ -51,8 +61,15 @@ const WEBSERVER = '@deepseek-ai/dsh-host-webserver'
 const CREDENTIALS_LOCAL = '@deepseek-ai/dsh-credentials-local'
 const CONNECTION = '@deepseek-ai/dsh-client-connection'
 const KEY_AUTH = '@deepseek-ai/dsh-api-key-auth'
+const TYPERT_REGISTRY = '@deepseek-ai/dsh-typert-registry'
+const GATEWAY = '@deepseek-ai/dsh-api-gateway'
 /** Loader specifier of the in-file ApiProxy stand-in; never a published package. */
 const API_PROXY = '@deepseek-ai/dsh-api-key-auth-test-api-proxy'
+/** Loader specifier of the in-file Remote fixture; never a published package. */
+const REMOTE_FIXTURE = '@deepseek-ai/dsh-api-key-auth-test-remote'
+
+/** The Gateway-claimed endpoint: two segments, so the `/api` fallback never sees it. */
+const CLAIMED_ENDPOINT = 'demo/echo'
 
 /** Audit label of the single configured key. */
 const KEY_NAME = 'laptop'
@@ -112,6 +129,29 @@ class StandInApiProxy extends Service {
   }
 }
 
+/** Times the Remote fixture's method ran; an unkeyed caller must leave it at zero. */
+let echoCalls = 0
+
+/**
+ * The composition's Remote row. The Typert Gateway interceptor claims this
+ * service's `demo/echo` endpoint on the shared `/api` channel from its SRC
+ * marker alone — no generated definitions — so requests to it are answered by
+ * the interceptor and never reach the `/api` fallback.
+ */
+class RemoteFixture extends Service {
+  readonly typertRemote = bindTypertRemote(this, 'demo')
+
+  constructor(ctx: Context) {
+    super(ctx, 'demo')
+  }
+
+  @Remote
+  echo(request: { readonly value: string }): { readonly echoed: string } {
+    echoCalls += 1
+    return { echoed: request.value }
+  }
+}
+
 const contexts: Context[] = []
 const roots: string[] = []
 const sockets: WebSocket[] = []
@@ -133,6 +173,7 @@ afterEach(async () => {
     await rm(root, { recursive: true, force: true, maxRetries: 3, retryDelay: 50 })
   }
   vi.unstubAllEnvs()
+  echoCalls = 0
 })
 
 /**
@@ -155,6 +196,9 @@ async function loadComposition(gated: boolean): Promise<{ ctx: Context; base: st
     '    watch: false',
     `- name: '${API_PROXY}'`,
     `- name: '${CONNECTION}'`,
+    `- name: '${TYPERT_REGISTRY}'`,
+    `- name: '${GATEWAY}'`,
+    `- name: '${REMOTE_FIXTURE}'`,
     ...gated
       ? [
         `- name: '${KEY_AUTH}'`,
@@ -177,6 +221,9 @@ async function loadComposition(gated: boolean): Promise<{ ctx: Context; base: st
     [CREDENTIALS_LOCAL, LocalCredentialProvider],
     [API_PROXY, StandInApiProxy],
     [CONNECTION, Connection],
+    [TYPERT_REGISTRY, TypertRegistry],
+    [GATEWAY, TypertGateway],
+    [REMOTE_FIXTURE, RemoteFixture],
     [KEY_AUTH, ApiKeyAuth],
   ])
   context.loader.internal = {
@@ -252,6 +299,29 @@ describe('real composition: the key gate on a listening server', () => {
 
     const keyed = dispatched(await post(base, 'session.list', {}, SECRET))
     expect(keyed).toEqual({ type: 'server-response', rpcId: 'rpc-1', result: { ok: true, value: { items: [] } } })
+  })
+
+  it('refuses an unkeyed call to an interceptor-claimed endpoint before its Remote runs', { timeout: 60_000 }, async () => {
+    vi.stubEnv(SECRET_REF, SECRET)
+    const { base } = await loadComposition(true)
+    const payload = { args: { request: { value: 'hello' } } }
+
+    const unkeyed = await post(base, CLAIMED_ENDPOINT, payload)
+    expect(unkeyed.status).toBe(401)
+    expect(unkeyed.challenge).toBe('Bearer')
+    expect(unkeyed.text).toBe('missing bearer credential')
+    // The interceptor answers claimed endpoints ahead of the `/api` fallback,
+    // so this counter is what separates "the gate refused it" from "the
+    // Gateway ran and happened to fail".
+    expect(echoCalls).toBe(0)
+
+    const keyed = dispatched(await post(base, CLAIMED_ENDPOINT, payload, SECRET))
+    expect(keyed).toEqual({
+      type: 'server-response',
+      rpcId: 'rpc-1',
+      result: { ok: true, value: { echoed: 'hello' } },
+    })
+    expect(echoCalls).toBe(1)
   })
 
   it('refuses a privileged method for a keyed caller while the ungated profile still serves it', { timeout: 60_000 }, async () => {

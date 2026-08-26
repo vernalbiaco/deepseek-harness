@@ -42,6 +42,9 @@ export type ApiGateVerdict =
   | { readonly admitted: true; readonly principals: readonly string[]; readonly privileged: boolean }
   | { readonly admitted: false; readonly status: 401 | 403; readonly reason: string }
 
+/** The aggregate verdict of a request every gate admitted. */
+export type AdmittedApiGateVerdict = Extract<ApiGateVerdict, { admitted: true }>
+
 /**
  * Fold a Node header map into `Headers`, joining repeated values the way the
  * Fetch carrier does.
