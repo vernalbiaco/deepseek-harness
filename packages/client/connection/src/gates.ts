@@ -10,7 +10,11 @@
 export interface ApiGateRequest {
   /** Carrier the request arrived on. */
   readonly transport: 'http' | 'websocket'
-  /** RPC method for an `/api/<method>` request; absent for an upgrade. */
+  /**
+   * Path under `/api/` for an HTTP request: a dotted RPC method, or the
+   * `<namespace>/<method>` endpoint of a registered interceptor. Absent for an
+   * upgrade.
+   */
   readonly method?: string
   /** Request headers, already folded to a `Headers` instance. */
   readonly headers: Headers

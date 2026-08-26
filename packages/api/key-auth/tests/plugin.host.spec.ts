@@ -109,6 +109,24 @@ describe('api-key-auth gate', () => {
     await expect(gate().authorize(withKey('new-value'))).resolves.toMatchObject({ allow: true })
   })
 
+  it('revokes exactly the key whose row was removed, leaving its sibling admitting', async () => {
+    // The removed row's secret stays resolvable throughout: dropping the row is
+    // what revokes the key, independently of the credential it referenced.
+    const { ctx, gates, gate } = harness({ A: 'secret-a', B: 'secret-b' })
+    const fiber = ctx.plugin(plugin, { keys: [{ name: 'laptop', secret: 'A' }, { name: 'ci', secret: 'B' }] })
+    await fiber.await()
+    await expect(gate().authorize(withKey('secret-a')))
+      .resolves.toEqual({ allow: true, principal: 'laptop', privileged: false })
+
+    await fiber.update({ keys: [{ name: 'ci', secret: 'B' }] })
+    await fiber.await()
+    expect(gates.length).toBe(1)
+    await expect(gate().authorize(withKey('secret-a')))
+      .resolves.toEqual({ allow: false, status: 401, reason: 'unrecognized credential' })
+    await expect(gate().authorize(withKey('secret-b')))
+      .resolves.toEqual({ allow: true, principal: 'ci', privileged: false })
+  })
+
   it('registers at the configured order', async () => {
     const { ctx, gate } = harness({ A: 'a' })
     const fiber = ctx.plugin(plugin, { keys: [{ name: 'laptop', secret: 'A' }], order: 42 })
