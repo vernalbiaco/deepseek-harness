@@ -10,8 +10,8 @@
 
 | 配置键 | 默认值 | 含义 |
 |---|---|---|
-| `keys[].name` | — | 一个已接受密钥的审计标签;在列表中唯一,绝不是密钥本身。在放行、以及无凭据或无法识别凭据的拒绝时都会被记录。 |
-| `keys[].secret` | — | 解析出该密钥所用密钥值的凭据引用:一个裸 POSIX shell 标识符(例如 `DSH_KEY_CI`),格式与 [`dsh-credentials`](../../credentials/README.md) 在别处读取的格式相同,由已挂载的 `dsh-credentials` provider 解析。每个已配置密钥在每次请求中解析一次,因此轮换密钥无需重启。 |
+| `keys[].name` | — | 一个已接受密钥的审计标签;在列表中唯一,绝不是密钥本身。放行时作为 principal 被记录;每次拒绝都会在该位置记录字面量 `none`。 |
+| `keys[].secret` | — | 解析出该密钥所用密钥值的凭据引用:一个裸 POSIX shell 标识符(例如 `DSH_KEY_CI`),格式与 [`dsh-credentials`](../../credentials/credentials/README.md) 在别处读取的格式相同,通过 `ctx.credentials` 由该组合所挂载的凭据 provider 解析。每个已配置密钥在每次请求中解析一次,因此轮换密钥无需重启。 |
 | `order` | `100` | 该门在所有已注册门([`ApiGateRegistry`](../../client/connection/src/gates.ts))中的运行顺序,为必须更早运行的门留出空间。多个门使用相同顺序是注册错误。 |
 
 至少需要一个密钥;`keys` 列表为空是加载错误,`keys[].name` 重复也是加载错误。`keys[].secret` 引用格式不正确同样会以这种方式失败——在加载时,而不是在第一次请求时。

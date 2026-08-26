@@ -10,8 +10,8 @@ A request is admitted when its `Authorization` header carries `Bearer <secret>` 
 
 | Key | Default | Meaning |
 |---|---|---|
-| `keys[].name` | — | Audit label for one accepted key; unique across the list, never a secret. Logged on admission and on a no-credential or unrecognized-credential denial. |
-| `keys[].secret` | — | Credential reference resolving to the key's secret: a bare POSIX shell identifier (for example `DSH_KEY_CI`), matching the same form [`dsh-credentials`](../../credentials/README.md) reads elsewhere, that the mounted `dsh-credentials` provider resolves. Resolved once per configured key per request, so a rotated secret needs no restart. |
+| `keys[].name` | — | Audit label for one accepted key; unique across the list, never a secret. Logged as the principal on admission; every denial logs the literal `none` in its place. |
+| `keys[].secret` | — | Credential reference resolving to the key's secret: a bare POSIX shell identifier (for example `DSH_KEY_CI`), matching the same form [`dsh-credentials`](../../credentials/credentials/README.md) reads elsewhere, resolved through `ctx.credentials` by whichever credentials provider the composition mounts. Resolved once per configured key per request, so a rotated secret needs no restart. |
 | `order` | `100` | This gate's run order among all registered gates ([`ApiGateRegistry`](../../client/connection/src/gates.ts)), leaving room for gates that must run earlier. A duplicate order across gates is a registration error. |
 
 At least one key is required; an empty `keys` list is a load error, and a duplicate `keys[].name` is a load error. A malformed `keys[].secret` reference fails the same way, at load rather than at the first request.
