@@ -44,7 +44,7 @@ export type ApiGateVerdict =
  * @param raw - `IncomingMessage.headers`.
  * @returns an equivalent `Headers` instance.
  */
-export function headersOf(raw: NodeJS.Dict<string | string[]>): Headers {
+export function headersOf(raw: Readonly<Record<string, string | string[] | undefined>>): Headers {
   const headers = new Headers()
   for (const [name, value] of Object.entries(raw)) {
     if (value === undefined) continue
@@ -86,8 +86,10 @@ export class ApiGateRegistry {
       try {
         decision = await gate.authorize(request)
       } catch {
-        // A gate that fails open would defeat its purpose; the cause stays on
-        // the Host log rather than in a response that a caller can read.
+        // A gate that fails open would defeat its purpose, so any throw denies
+        // with 403. The thrown cause is discarded, not logged: this registry
+        // has no logging channel of its own, and surfacing gate internals in
+        // the denial reason would leak them to the caller that triggered it.
         return { admitted: false, status: 403, reason: 'gate failed' }
       }
       if (!decision.allow) return { admitted: false, status: decision.status, reason: decision.reason }
