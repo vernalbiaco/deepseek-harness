@@ -128,6 +128,8 @@
       "@deepseek-ai/dsh-authorization/types": ["./packages/credentials/authorization/src/types.ts"],
       "@deepseek-ai/dsh-settings/types": ["./packages/settings/settings/src/types.ts"],
       "@deepseek-ai/dsh-api-remotes/types": ["./packages/api/remotes/src/types.ts"],
+      "@deepseek-ai/dsh-api-key-auth": ["./packages/api/key-auth/src/index.ts"],
+      "@deepseek-ai/dsh-api-key-auth/invariant": ["./packages/api/key-auth/src/invariant.ts"],
       "@deepseek-ai/dsh-compaction/checkpoint": ["./packages/compaction/compaction/src/checkpoint.ts"],
       "@deepseek-ai/dsh-compaction/types": ["./packages/compaction/compaction/src/types.ts"],
       "@deepseek-ai/dsh-file-reference/grammar": ["./packages/context/file-reference/src/grammar.ts"],

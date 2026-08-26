@@ -15,6 +15,7 @@ kind: "package-reference"
 
 - [使用本包](#use-this-package)
 - [浏览器认证与请求信任](#browser-authentication-and-request-trust)
+- [准入 gate](#admission-gates)
 - [Connection generation](#connection-generation)
 - [模型体验](#model-experience)
 - [已知限制与暂缓事项](#known-limitations-and-deferred-work)
@@ -37,6 +38,11 @@ kind: "package-reference"
 cookie 签名密钥是 `ctx.credentials` 中由 `client-connection/browser-session` 拥有的 grant 记录。本地提供方把它持久化到 `$DSH_HOME/.credentials.yaml`；`BrowserAuth` 在 Connection 激活期间加载或创建该记录，并把密钥留在内存中，因此请求认证同步执行。删除或替换该记录会在下一次 Connection 激活时生效。cookie 携带绝对签发与过期区间，`cookieMaxAgeDays` 默认设为 30 天，并在确定性名称与签名 payload 中同时绑定规范化 hostname 和 port。它是 host-only、`Path=/`、`HttpOnly`、`SameSite=Strict`；随附服务器使用 loopback HTTP，因此刻意不设置 `Secure`。
 
 认证之前，每个请求仍经过 `src/api-request-trust.ts`。其 `Host` 必须是 loopback，或与 `trustedHosts` 条目匹配：带端口的 `host:port` 精确匹配，不带端口的条目匹配任意端口，两侧均经 WHATWG 归一化。若附带 `Origin`，它必须等于该 Host；`sec-fetch-site: cross-site` 一律拒绝。畸形配置 authority 会让插件加载失败。这些检查防御 DNS rebinding 与跨站浏览器请求，绝不建立身份。Host/Origin 校验失败返回 403；Host 可信但未认证的请求返回 401。`dsh web --host 0.0.0.0` 仍不受支持。决策记录：[浏览器请求信任](../../../.agents/notes/implemented/architecture/2026-07-28-api-browser-trust-boundary.zh.md)与[浏览器令牌认证](../../../.agents/notes/implemented/architecture/2026-08-24-browser-token-authentication.zh.md)。
+
+<a id="admission-gates"></a>
+## 准入 gate
+
+`ctx.connection.gates.register(gate)` 贡献一个按序排列的准入 gate——`{ order: number, authorize(request): Promise<ApiGateDecision> }`——并返回释放它的 disposer；重复的 `order` 会在注册时抛错。gate 只在 Host/Origin 校验与浏览器认证接受请求之后才按 `order` 升序执行：在每个 `/api` HTTP 请求分发之前，以及 API Gateway 的 `/api/remote.mux` WebSocket upgrade 协商之前；`ctx.connection.authorizeApiRequest` 为其他载体运行同一个 registry。`request.method` 是 `/api/` 之下的路径——点分的 RPC 方法，或已注册 interceptor 的 `<namespace>/<method>` endpoint；请求裸 `/api` 时没有它，upgrade 也没有，因此 `http` 传输并不意味着一定有 method，按 method 判断的 gate 必须容忍其缺失。第一个拒绝即终止该请求：显式的 `{ allow: false }` 决策以自己的 `status` 应答，其中 HTTP `401` 会带上 `WWW-Authenticate: Bearer`，upgrade 则以该状态被拒绝；`authorize` 抛出异常的 gate 以 `403` 拒绝，并丢弃抛出的原因、不作记录。gate 只会新增要求：没有浏览器会话的请求仍会在任何 gate 执行前得到 `401`，空的 registry 放行每个已认证的请求，而决策中的 `privileged` 标志不会解锁任何方法。
 
 <a id="connection-generation"></a>
 ## Connection generation

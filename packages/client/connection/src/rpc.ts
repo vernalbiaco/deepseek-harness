@@ -1,6 +1,7 @@
 /** Generic unary RPC contracts shared by the Host and Client Connection halves. */
 
 import type { Branded } from '@deepseek-ai/dsh-brand'
+import type { ApiGateRequest, ApiGateVerdict, ApiRequestGate } from './gates.ts'
 
 /** Correlation id minted by a caller and echoed by the Connection response. */
 export type RpcId = Branded<'rpc-id'>
@@ -165,6 +166,14 @@ export interface HostConnectionRpc {
 export interface HostConnectionHandle {
   /** Generic RPC channel registry. */
   readonly rpc: HostConnectionRpc
+  /** Ordered admission gates consulted before any `/api` request dispatches. */
+  readonly gates: { register(gate: ApiRequestGate): () => void }
+  /**
+   * Run every registered admission gate against one request.
+   * @param request - the request under consideration.
+   * @returns the aggregate verdict.
+   */
+  authorizeApiRequest(request: ApiGateRequest): Promise<ApiGateVerdict>
   /** Exact Fetch routes for streaming or browser-native responses. */
   readonly fetch: HostConnectionFetch
 
