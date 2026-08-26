@@ -24,7 +24,7 @@ A second problem outlives the first. `PRIVILEGED_METHODS` — the `settings.*` a
 /** One request presented to the gates. */
 export interface ApiGateRequest {
   readonly transport: 'http' | 'websocket'
-  /** Dotted RPC method or `<namespace>/<method>` interceptor endpoint; absent for an upgrade. */
+  /** Dotted RPC method or `<namespace>/<method>` interceptor endpoint; absent for an upgrade and for bare `/api`. */
   readonly method?: string
   readonly headers: Headers
 }
@@ -111,6 +111,8 @@ A real-composition test boots two cordis.yml compositions through the vendored L
 Gate consultation sits ahead of interceptor selection on the `/api` channel, so an interceptor is no longer a place where authentication can be skipped. The cost is that an interceptor no longer sees the requests the gates refuse, and any future interceptor inherits the gate requirement whether or not its author knows the registry exists.
 
 That placement is invisible to a unit test built on a fake `webServer`: such a test registers the route and calls the handler it captured, which exercises the seam it already believes in. Only a request that crosses a real socket into an endpoint a real interceptor claims observes which of the two answers first. Coverage for the `/api` transport therefore needs at least one arm assembled through the Loader over a listening port; a fake-transport suite at full coverage is not evidence about dispatch order.
+
+The verdict's `privileged` field has exactly one enforcement site: Connection's `/api` fallback. The interceptor path admits a request and dispatches it without reading the field, and the two sets cannot overlap today because an interceptor claims two-segment `<namespace>/<method>` endpoints while every `PRIVILEGED_METHODS` entry is a dotted name. A Remote that ever exposes a settings or credentials operation therefore needs its own privilege check on that path; it would not inherit one.
 
 A gate sits on the request path for every `/api` call, so a bug there fails every caller rather than one feature. Connection holds no policy and a throwing gate denies rather than admits, which makes such a failure loud and safe.
 

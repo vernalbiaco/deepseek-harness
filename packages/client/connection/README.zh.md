@@ -42,7 +42,7 @@ cookie 签名密钥是 `ctx.credentials` 中由 `client-connection/browser-sessi
 <a id="admission-gates"></a>
 ## 准入 gate
 
-`ctx.connection.gates.register(gate)` 贡献一个按序排列的准入 gate——`{ order: number, authorize(request): Promise<ApiGateDecision> }`——并返回释放它的 disposer；重复的 `order` 会在注册时抛错。gate 只在 Host/Origin 校验与浏览器认证接受请求之后才按 `order` 升序执行：在每个 `/api` HTTP 请求分发之前，以及 API Gateway 的 `/api/remote.mux` WebSocket upgrade 协商之前；`ctx.connection.authorizeApiRequest` 为其他载体运行同一个 registry。`request.method` 仅在 `/api/<method>` HTTP 请求上存在。第一个拒绝即终止该请求：显式的 `{ allow: false }` 决策以自己的 `status` 应答，其中 HTTP `401` 会带上 `WWW-Authenticate: Bearer`，upgrade 则以该状态被拒绝；`authorize` 抛出异常的 gate 以 `403` 拒绝，并丢弃抛出的原因、不作记录。gate 只会新增要求：没有浏览器会话的请求仍会在任何 gate 执行前得到 `401`，空的 registry 放行每个已认证的请求，而决策中的 `privileged` 标志不会解锁任何方法。
+`ctx.connection.gates.register(gate)` 贡献一个按序排列的准入 gate——`{ order: number, authorize(request): Promise<ApiGateDecision> }`——并返回释放它的 disposer；重复的 `order` 会在注册时抛错。gate 只在 Host/Origin 校验与浏览器认证接受请求之后才按 `order` 升序执行：在每个 `/api` HTTP 请求分发之前，以及 API Gateway 的 `/api/remote.mux` WebSocket upgrade 协商之前；`ctx.connection.authorizeApiRequest` 为其他载体运行同一个 registry。`request.method` 是 `/api/` 之下的路径——点分的 RPC 方法，或已注册 interceptor 的 `<namespace>/<method>` endpoint；请求裸 `/api` 时没有它，upgrade 也没有，因此 `http` 传输并不意味着一定有 method，按 method 判断的 gate 必须容忍其缺失。第一个拒绝即终止该请求：显式的 `{ allow: false }` 决策以自己的 `status` 应答，其中 HTTP `401` 会带上 `WWW-Authenticate: Bearer`，upgrade 则以该状态被拒绝；`authorize` 抛出异常的 gate 以 `403` 拒绝，并丢弃抛出的原因、不作记录。gate 只会新增要求：没有浏览器会话的请求仍会在任何 gate 执行前得到 `401`，空的 registry 放行每个已认证的请求，而决策中的 `privileged` 标志不会解锁任何方法。
 
 <a id="connection-generation"></a>
 ## Connection generation

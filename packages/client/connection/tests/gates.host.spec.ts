@@ -63,6 +63,26 @@ describe('ApiGateRegistry', () => {
     expect(() => registry.register(allow(10, 'second'))).not.toThrow()
   })
 
+  it('ignores a stale disposer, keeping the gate that now holds the order', async () => {
+    const registry = new ApiGateRegistry()
+    const stale = registry.register(allow(10, 'first'))
+    stale()
+    registry.register(allow(10, 'second'))
+    stale()
+    await expect(registry.authorize(httpRequest))
+      .resolves.toMatchObject({ admitted: true, principals: ['second'] })
+  })
+
+  it('is idempotent when a live disposer is called twice', async () => {
+    const registry = new ApiGateRegistry()
+    const dispose = registry.register(allow(10, 'first'))
+    registry.register(allow(20, 'second'))
+    dispose()
+    dispose()
+    await expect(registry.authorize(httpRequest))
+      .resolves.toMatchObject({ admitted: true, principals: ['second'] })
+  })
+
   it('folds Node header maps, joining repeated values', () => {
     const headers = headersOf({ authorization: 'Bearer k', 'x-multi': ['a', 'b'], absent: undefined })
     expect(headers.get('authorization')).toBe('Bearer k')

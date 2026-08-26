@@ -13,7 +13,8 @@ export interface ApiGateRequest {
   /**
    * Path under `/api/` for an HTTP request: a dotted RPC method, or the
    * `<namespace>/<method>` endpoint of a registered interceptor. Absent for an
-   * upgrade.
+   * upgrade, and absent for an HTTP request to bare `/api`, which carries no
+   * path under the prefix — an `http` transport does not imply a method.
    */
   readonly method?: string
   /** Request headers, already folded to a `Headers` instance. */
@@ -77,7 +78,11 @@ export class ApiGateRegistry {
       throw new Error(`connection: an API gate is already registered at order ${gate.order}`)
     }
     this.gates.set(gate.order, gate)
-    return () => { this.gates.delete(gate.order) }
+    // Identity-checked: a stale disposer, called after this order was released
+    // and re-registered, must not remove the gate that now holds the order.
+    return () => {
+      if (this.gates.get(gate.order) === gate) this.gates.delete(gate.order)
+    }
   }
 
   /**

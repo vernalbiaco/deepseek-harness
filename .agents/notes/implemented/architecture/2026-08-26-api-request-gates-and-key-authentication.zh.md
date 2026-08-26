@@ -24,7 +24,7 @@ Status: implemented
 /** One request presented to the gates. */
 export interface ApiGateRequest {
   readonly transport: 'http' | 'websocket'
-  /** Dotted RPC method or `<namespace>/<method>` interceptor endpoint; absent for an upgrade. */
+  /** Dotted RPC method or `<namespace>/<method>` interceptor endpoint; absent for an upgrade and for bare `/api`. */
   readonly method?: string
   readonly headers: Headers
 }
@@ -111,6 +111,8 @@ connection 不承载任何策略。它只机械地执行两条规则：拒绝即
 闸门审查位于 `/api` 通道上拦截器选择之前，因此拦截器不再可能成为跳过认证的地方。代价是拦截器再也看不到被闸门拒绝的请求，而且今后任何拦截器都会继承这一闸门要求，无论其作者是否知道该注册表的存在。
 
 这一放置位置对建立在伪造 `webServer` 之上的单元测试是不可见的：这类测试注册路由并调用它捕获到的处理器，检验的只是它本就相信的那个接缝。只有一个跨越真实套接字、进入被真实拦截器认领的端点的请求，才能观察到两者中谁先作答。因此 `/api` 传输层的覆盖至少需要一支经 Loader 组装、跑在监听端口上的用例；一套伪造传输层的、覆盖率满格的测试，并不构成关于派发次序的证据。
+
+裁定中的 `privileged` 字段只有一个执行点：connection 的 `/api` 兜底处理器。拦截器路径在放行请求后直接派发，并不读取该字段；两个集合目前不可能重叠，因为拦截器认领的是两段式 `<namespace>/<method>` 端点，而 `PRIVILEGED_METHODS` 中的每一项都是点号形式的名字。因此，将来若有 Remote 暴露 settings 或 credentials 操作，必须在该路径上自行做特权检查，它不会自动继承。
 
 闸门位于每一次 `/api` 调用的请求路径上，因此那里的缺陷会让所有调用方失败，而非仅影响某一项功能。connection 不承载策略，且抛出异常的闸门是拒绝而非放行，这让此类故障既响亮又安全。
 
