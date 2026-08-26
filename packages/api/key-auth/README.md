@@ -4,14 +4,14 @@ English | [中文](README.zh.md)
 
 An API key admission gate for the `/api` transport. It registers one gate on [`dsh-client-connection`](../../client/connection/README.md)'s `ApiGateRegistry` ([gates](../../client/connection/src/gates.ts)) that admits a caller presenting a configured bearer secret and denies every other caller; it never grants the privileged-method plane.
 
-A request is admitted when its `Authorization` header carries `Bearer <secret>` and `<secret>` matches one configured key's resolved credential, compared with `timingSafeEqual`. On a match the gate returns `{ allow: true, principal: <key name>, privileged: false }`; `privileged` is unconditional and not configurable, so no config makes a keyed caller privileged. A request with no bearer credential and a request with an unrecognized one both answer `401`. A keyed caller invoking a `PRIVILEGED_METHODS` member (settings, credentials, preset authoring, and similar configuration-plane methods; see [gates.ts](../../client/connection/src/gates.ts) and `dsh-client-connection`'s `index.ts`) answers `403`, because privilege can only come from the loopback-same-origin trust fence, which this gate never satisfies. Composition — which profile mounts this plugin, and whether that profile also relaxes the trust fence — decides who reaches the configuration plane; no request-level test can distinguish a relayed request from a local one.
+A request is admitted when its `Authorization` header carries `Bearer <secret>` and `<secret>` matches one configured key's resolved credential, compared with `timingSafeEqual`. On a match the gate returns `{ allow: true, principal: <key name>, privileged: false }`; `privileged` is unconditional and not configurable, so no config makes a keyed caller privileged. A request with no bearer credential and a request with an unrecognized one both answer `401`. A `PRIVILEGED_METHODS` member (settings, credentials, preset authoring, and similar configuration-plane methods; see [gates.ts](../../client/connection/src/gates.ts) and `dsh-client-connection`'s `index.ts`) requires both an aggregate `privileged: true` verdict and passing the loopback-same-origin trust fence; this gate's `privileged: false` alone answers `403` regardless of where the request originated, which is the point — a relay terminating at loopback would otherwise pass the fence on transport alone. Composition — which profile mounts this plugin, and whether that profile also relaxes the trust fence — decides who reaches the configuration plane; no request-level test can distinguish a relayed request from a local one.
 
 ## Config
 
 | Key | Default | Meaning |
 |---|---|---|
 | `keys[].name` | — | Audit label for one accepted key; unique across the list, never a secret. Logged on admission and on a no-credential or unrecognized-credential denial. |
-| `keys[].secret` | — | Credential reference resolving to the key's secret, in the same form [`dsh-credentials`](../../credentials/README.md) reads elsewhere. Resolved once per configured key per request, so a rotated secret needs no restart. |
+| `keys[].secret` | — | Credential reference resolving to the key's secret: a bare POSIX shell identifier (for example `DSH_KEY_CI`), matching the same form [`dsh-credentials`](../../credentials/README.md) reads elsewhere, that the mounted `dsh-credentials` provider resolves. Resolved once per configured key per request, so a rotated secret needs no restart. |
 | `order` | `100` | This gate's run order among all registered gates ([`ApiGateRegistry`](../../client/connection/src/gates.ts)), leaving room for gates that must run earlier. A duplicate order across gates is a registration error. |
 
 At least one key is required; an empty `keys` list is a load error, and a duplicate `keys[].name` is a load error. A malformed `keys[].secret` reference fails the same way, at load rather than at the first request.
@@ -21,8 +21,10 @@ At least one key is required; an empty `keys` list is a load error, and a duplic
   name: '@deepseek-ai/dsh-api-key-auth'
   config:
     keys:
+      - name: laptop
+        secret: DSH_KEY_LAPTOP
       - name: ci
-        secret: env:API_KEY_CI
+        secret: DSH_KEY_CI
 ```
 
 ## Model Experience
