@@ -9,6 +9,7 @@ import { API_PATH } from './api-path.ts'
 import { bridge, DEFAULT_MAX_REQUEST_BODY_BYTES } from './http-bridge.ts'
 import { assertTrustedAuthority } from './api-request-trust.ts'
 import { BrowserAuth } from './browser-auth.ts'
+import { headersOf } from './gates.ts'
 import { HostConnectionService } from './rpc-host.ts'
 import { ConnectionRecoveryConfigSchema, resolveConnectionConfig, type ConnectionRecoveryConfig } from './recovery-config.ts'
 
@@ -103,7 +104,9 @@ export const Config: z<ConnectionConfig> = z.object({
 /**
  * Provides carrier-neutral RPC and Fetch registries. When `webServer` is
  * present, the plugin also mounts the `/api` browser transport with Host/Origin
- * checks and persistent browser authentication.
+ * checks and persistent browser authentication, then the registered admission
+ * gates ([gates](./gates.ts)): a denying gate answers with its own status, and a
+ * `401` carries `WWW-Authenticate: Bearer`.
  * @param ctx - Host plugin context.
  * @param config - resolved plugin config (schema defaults applied).
  */
@@ -136,6 +139,18 @@ export async function apply(ctx: Context, config?: ConnectionConfig): Promise<vo
         if (rejection !== undefined) {
           res.writeHead(rejection)
           res.end(rejection === 401 ? 'unauthorized' : 'forbidden')
+          return
+        }
+        const pathname = new URL(req.url ?? '/', 'http://localhost').pathname
+        const method = pathname.startsWith(`${API_PATH}/`) ? pathname.slice(API_PATH.length + 1) : undefined
+        const verdict = await connection.authorizeApiRequest({
+          transport: 'http',
+          headers: headersOf(req.headers),
+          ...method !== undefined ? { method } : {},
+        })
+        if (!verdict.admitted) {
+          res.writeHead(verdict.status, verdict.status === 401 ? { 'www-authenticate': 'Bearer' } : {})
+          res.end(verdict.reason)
           return
         }
         await bridge(req, res, fetchHandler, maxRequestBodyBytes)
