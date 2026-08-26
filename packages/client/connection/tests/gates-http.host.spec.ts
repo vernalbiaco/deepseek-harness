@@ -28,14 +28,16 @@ async function mounted(): Promise<{ ctx: Context; handle: WebRoute['handler'] }>
   ctx.provide('webServer', fakeWebServer(routes) as WebServer)
   const fiber = ctx.plugin({ inject: [...inject], apply }, { trustedHosts: [] })
   await fiber.await()
-  return { ctx, handle: routes[0].handler }
+  const [route] = routes
+  if (route === undefined) throw new Error('client-connection: /api route was not registered')
+  return { ctx, handle: route.handler }
 }
 
 /** POST `/api/<method>` from a loopback origin and capture the response. */
 async function post(
   handle: WebRoute['handler'],
   method: string,
-): Promise<{ status?: number; headers?: Record<string, string>; body?: string }> {
+): Promise<{ status: number | undefined; headers: Record<string, string> | undefined; body: string | undefined }> {
   const request = Readable.from([Buffer.from('{}')]) as unknown as IncomingMessage
   Object.assign(request, {
     url: `/api/${method}`,
@@ -43,7 +45,10 @@ async function post(
     headers: { host: '127.0.0.1:3080', 'content-type': 'application/json' },
   })
   const chunks: Buffer[] = []
-  const state: { status?: number; headers?: Record<string, string> } = {}
+  const state: { status: number | undefined; headers: Record<string, string> | undefined } = {
+    status: undefined,
+    headers: undefined,
+  }
   const response = Object.assign(new EventEmitter(), {
     writableEnded: false,
     writeHead(code: number, values?: Record<string, string>) { state.status = code; state.headers = values; return this },
