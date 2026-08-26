@@ -145,6 +145,7 @@ const NON_SOURCE_DIRECTORIES = new Set([
   '.pytest_cache',
   '.artifacts',
   'vendor',
+  'workspaces',
 ])
 
 /** Glob traversal exclusions corresponding to the non-source path predicate. */
@@ -165,6 +166,7 @@ export const TRANSLATION_SCOPE_GLOB_EXCLUDES = [
   '**/.pytest_cache/**',
   'apps/web/dist/**',
   '.artifacts/**',
+  'workspaces/**',
   'python/sdk-runtime/src/deepseek_harness_runtime/runtime/deepseek-harness-sdk-runtime-*/**',
   'python/sdk-runtime/src/deepseek_harness_runtime/runtime/node/**',
   'vendor/**',

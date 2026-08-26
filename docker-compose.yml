@@ -1,0 +1,104 @@
+services:
+  headless:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: dsh:local
+    entrypoint: ["node", "/app/apps/cli/lib/bin.js", "--profile", "headless"]
+    command: []
+    env_file:
+      - path: .env
+        required: false
+    volumes:
+      - dsh-home:/root/.dsh
+      # The invoking directory is the agent's default workspace root.
+      # Point DSH_WORKSPACE at another project to run tasks against it, e.g.:
+      #   DSH_WORKSPACE=/path/to/project docker compose run --rm headless "..."
+      - ${DSH_WORKSPACE:-.}:/workspace
+      # Extra project checkouts the agent may be pointed at, kept out of the
+      # default workspace root.
+      - ./workspaces:/workspaces
+      # Claude Code / Codex OAuth credentials for dsh-llm-local-token.
+      # Read-write on purpose: the plugin refreshes the token near expiry and
+      # writes it back to the same file the host CLI reads, so a read-only
+      # mount would break refresh and eventually log the CLI out.
+      - ${HOME}/.claude:/root/.claude
+      - ${HOME}/.codex:/root/.codex
+    working_dir: /workspace
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: dsh:local
+    entrypoint: ["node", "/app/apps/cli/lib/bin.js"]
+    command: ["web", "--no-open"]
+    env_file:
+      - path: .env
+        required: false
+    volumes:
+      - dsh-home:/root/.dsh
+      - ${DSH_WORKSPACE:-.}:/workspace
+      - ./workspaces:/workspaces
+      # Claude Code / Codex OAuth credentials for dsh-llm-local-token.
+      # Read-write on purpose: the plugin refreshes the token near expiry and
+      # writes it back to the same file the host CLI reads, so a read-only
+      # mount would break refresh and eventually log the CLI out.
+      - ${HOME}/.claude:/root/.claude
+      - ${HOME}/.codex:/root/.codex
+    working_dir: /workspace
+    ports:
+      # web-proxy listens on 8080 inside this service's network namespace and
+      # forwards to dsh web's loopback-only 127.0.0.1:3080; see docker/proxy.
+      - "127.0.0.1:3080:8080"
+
+  # Headless HTTP API: the same POST /api/<method> surface as the web service,
+  # composed without any browser UI. The `api` profile in the dsh-home volume
+  # owns its plugin rows; see its cordis.patch.yml.
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: dsh:local
+    entrypoint: ["node", "/app/apps/cli/lib/bin.js", "--profile", "api"]
+    command: []
+    env_file:
+      - path: .env
+        required: false
+    volumes:
+      - dsh-home:/root/.dsh
+      - ${DSH_WORKSPACE:-.}:/workspace
+      - ./workspaces:/workspaces
+      # Claude Code / Codex OAuth credentials for dsh-llm-local-token.
+      # Read-write on purpose: the plugin refreshes the token near expiry and
+      # writes it back to the same file the host CLI reads, so a read-only
+      # mount would break refresh and eventually log the CLI out.
+      - ${HOME}/.claude:/root/.claude
+      - ${HOME}/.codex:/root/.codex
+    working_dir: /workspace
+    ports:
+      # api-proxy listens on 8081 inside this service's network namespace and
+      # forwards to the API server's loopback-only 127.0.0.1:3081.
+      # Published on the host loopback only: /api has a reachability fence,
+      # not authentication. Do not publish it on a routable address.
+      - "127.0.0.1:3081:8081"
+
+  api-proxy:
+    build:
+      context: ./docker/proxy
+    image: dsh-web-proxy:local
+    command: ["TCP-LISTEN:8081,fork,reuseaddr", "TCP:127.0.0.1:3081"]
+    network_mode: "service:api"
+    depends_on:
+      - api
+
+  web-proxy:
+    build:
+      context: ./docker/proxy
+    image: dsh-web-proxy:local
+    network_mode: "service:web"
+    depends_on:
+      - web
+
+volumes:
+  dsh-home:

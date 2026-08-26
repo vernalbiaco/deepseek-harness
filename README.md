@@ -40,6 +40,29 @@ pnpm dsh web
 
 `pnpm run build` prepares the repository artifacts. `pnpm dsh web` uses those built artifacts without rebuilding.
 
+### Run in Docker
+
+A Compose stack builds the CLI and the Web UI from a checkout and runs them in containers:
+
+```sh
+make docker-build                                     # build the image
+make docker-web                                       # Web UI at http://127.0.0.1:3080
+make docker-headless ARGS='"summarize the README"'    # answer one task, then exit
+make docker-down                                      # stop every service
+```
+
+`DSH_WORKSPACE` selects the directory a service mounts as the agent workspace, and `workspaces/` is a second mount for unrelated checkouts. Profile state — installed plugins, sessions, and settings — lives in the `dsh-home` volume and outlives an image rebuild.
+
+The `api` service serves the same `POST /api/<method>` surface the Web UI calls, composed without a browser client, so a program can create a session, select a model, submit a prompt, and read the transcript over HTTP:
+
+```sh
+docker compose up -d api api-proxy                    # API at http://127.0.0.1:3081
+```
+
+Every published port binds the host loopback. That surface enforces a `Host`-header reachability fence rather than authentication, so a routable address would let anyone who reaches it run code inside the container.
+
+Mounting the Claude Code and Codex credential directories lets [`dsh-llm-local-token`](https://github.com/tianxia--/dsh-llm-local-token) offer those subscriptions as model routes. The mounts are read-write because the plugin refreshes each token near expiry and writes it back to the file the host CLI reads. [`patches/dsh-llm-local-token/`](patches/dsh-llm-local-token/README.md) carries the fixes that release requires on Linux, and `make docker-patch-plugins` reapplies them after any reinstall.
+
 ## Community and support
 
 - Submit feedback or bug reports through [GitHub Discussions](https://github.com/deepseek-ai/deepseek-harness/discussions).

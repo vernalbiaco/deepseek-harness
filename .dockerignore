@@ -1,7 +1,9 @@
 CLAUDE.local.md
 .env
 node_modules/
+**/node_modules/
 lib/
+**/lib/
 *.tsbuildinfo
 pnpm-debug.log
 .pnpm-store/
@@ -11,7 +13,6 @@ examples/*/*.jsonl
 .sessions/
 examples/*/.sessions/
 coverage/
-.coverage-times.json
 .doc-typecheck-*/
 .node-next-types-*/
 .oxlint-contract-*/
@@ -19,32 +20,26 @@ coverage/
 oxlint-contract-*.ts
 .humanize/
 tmp/
-.claude/commands/
-.claude/launch.json
-.claude/settings.json
+.claude/
 .vscode/
+.idea/
 .DS_Store
-.idea
 mise.toml
 dist-exe/
-/dist/
-apps/desktop/.desktop-build/
-python/sdk-runtime/src/deepseek_harness_runtime/runtime/deepseek-harness-sdk-runtime-*
+python/sdk-runtime/src/deepseek_harness_runtime/runtime/dsh-jsonrpc-agent-*
 python/sdk-runtime/src/deepseek_harness_runtime/runtime/node/
 python/**/__pycache__/
 python/**/.pytest_cache/
-packages/**/__pycache__/
 apps/web/dist/
 .artifacts/
 .dsh-build/
 .playwright-mcp/
 .orig
 .worktrees/
+# Bind-mount root for extra project checkouts; never part of the build context.
+workspaces/
 worktrees/
 .agents/worktrees/
 .typert-*/
-native/system/test/bin/
-
-# Docker bind-mount root for extra project checkouts (each may be its own repo).
-workspaces/*
-!workspaces/.gitkeep
+website/.vitepress/cache/
+website/.vitepress/dist/
