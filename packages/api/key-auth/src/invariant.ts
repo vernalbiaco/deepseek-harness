@@ -14,8 +14,9 @@ export const name = 'api-key-auth-invariant'
 export const inject = ['invariants']
 
 /**
- * No runtime invariant: this package currently declares only its stable
- * plugin name and owns no event stream or mutable runtime data.
+ * No runtime invariant: this package owns no event stream or mutable runtime
+ * data. Its validated key list and gate registration live in a closure local
+ * to one `apply` call, not a shared registry this package owns.
  */
 const install: InvariantInstaller = () => {}
 

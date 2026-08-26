@@ -1,7 +1,7 @@
 /**
- * API key admission gate for the `/api` transport. Registers one
- * {@link ApiRequestGate} that admits a caller presenting a configured bearer
- * secret, and never grants the privileged-method plane.
+ * API key admission gate for the `/api` transport. Registers one gate on
+ * `dsh-client-connection`'s gate registry that admits a caller presenting a
+ * configured bearer secret, and never grants the privileged-method plane.
  *
  * @module @deepseek-ai/dsh-api-key-auth
  */
@@ -33,7 +33,7 @@ const DEFAULT_ORDER = 100
 export interface Config {
   /** Accepted keys; an empty list is a load error. */
   keys: KeyConfig[]
-  /** Gate run order among all registered gates, defaulting to {@link DEFAULT_ORDER} when omitted. */
+  /** Gate run order among all registered gates; defaults to `100` when omitted. */
   order?: number
 }
 
@@ -77,7 +77,14 @@ function validateKeys(keys: readonly KeyConfig[]): ResolvedKeyConfig[] {
   return keys.map((key) => {
     if (seen.has(key.name)) throw new Error(`api-key-auth: duplicate key name "${key.name}"`)
     seen.add(key.name)
-    return { name: key.name, secret: credentialRef(key.secret) }
+    try {
+      return { name: key.name, secret: credentialRef(key.secret) }
+    } catch {
+      // credentialRef's own error interpolates the malformed value; a
+      // caller who pasted a secret into this field (named `secret:`, not
+      // `secretRef:`) must never see it echoed back in a load error.
+      throw new Error(`api-key-auth: key "${key.name}" has an invalid credential reference`)
+    }
   })
 }
 
@@ -93,7 +100,7 @@ export function apply(ctx: Context, config: Config): void {
   const authorize = async (request: ApiGateRequest): Promise<ApiGateDecision> => {
     const presented = bearerSecret(request.headers)
     if (presented === undefined) {
-      ctx.logger.info(`api-key-auth: denied ${request.transport} ${request.method ?? 'upgrade'} (no credential)`)
+      ctx.logger.info(`api-key-auth: denied none ${request.transport} ${request.method ?? 'upgrade'} (no credential)`)
       return { allow: false, status: 401, reason: 'missing bearer credential' }
     }
     for (const key of keys) {
@@ -103,7 +110,7 @@ export function apply(ctx: Context, config: Config): void {
       ctx.logger.info(`api-key-auth: admitted ${key.name} ${request.transport} ${request.method ?? 'upgrade'}`)
       return { allow: true, principal: key.name, privileged: false }
     }
-    ctx.logger.info(`api-key-auth: denied ${request.transport} ${request.method ?? 'upgrade'} (unrecognized)`)
+    ctx.logger.info(`api-key-auth: denied none ${request.transport} ${request.method ?? 'upgrade'} (unrecognized)`)
     return { allow: false, status: 401, reason: 'unrecognized credential' }
   }
 
