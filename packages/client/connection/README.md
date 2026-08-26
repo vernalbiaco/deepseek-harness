@@ -15,6 +15,7 @@ The package carries browser-to-Host Remote calls, exact Fetch responses, and con
 
 - [Use this package](#use-this-package)
 - [Browser authentication and request trust](#browser-authentication-and-request-trust)
+- [Admission gates](#admission-gates)
 - [Connection generation](#connection-generation)
 - [Model Experience](#model-experience)
 - [Known Limitations and Deferred Work](#known-limitations-and-deferred-work)
@@ -37,6 +38,11 @@ Every Host RPC method and WebSocket stream requires one browser session; there i
 The cookie signing secret is the owner-scoped `client-connection/browser-session` grant record in `ctx.credentials`. The local provider persists it in `$DSH_HOME/.credentials.yaml`; `BrowserAuth` loads or creates the record during Connection activation and retains the secret in memory, so request authentication is synchronous. Deleting or replacing the record takes effect on the next Connection activation. Cookies carry an absolute issue/expiry interval, defaulting to 30 days through `cookieMaxAgeDays`, and bind the normalized hostname plus port in both their deterministic name and signed payload. They are host-only, `Path=/`, `HttpOnly`, and `SameSite=Strict`; they deliberately omit `Secure` because the shipped server uses loopback HTTP.
 
 Before authentication, every request still passes `src/api-request-trust.ts`. Its `Host` must be loopback or match a `trustedHosts` entry: exact on `host:port`, any port on port-less entries, both sides WHATWG-normalized. An attached `Origin` must equal that Host and `sec-fetch-site: cross-site` is refused. Malformed configured authorities fail plugin load. These checks defend DNS rebinding and cross-site browser requests; they never establish identity. A failed Host/Origin check returns 403, while a trusted but unauthenticated request returns 401. `dsh web --host 0.0.0.0` remains unsupported. Decision records: [browser request trust](../../../.agents/notes/implemented/architecture/2026-07-28-api-browser-trust-boundary.md) and [browser token authentication](../../../.agents/notes/implemented/architecture/2026-08-24-browser-token-authentication.md).
+
+<a id="admission-gates"></a>
+## Admission gates
+
+`ctx.connection.gates.register(gate)` contributes one ordered admission gate — `{ order: number, authorize(request): Promise<ApiGateDecision> }` — and returns the disposer that releases it; a duplicate `order` throws at registration. Gates run in ascending `order` only after the Host/Origin checks and browser authentication accept a request: on every `/api` HTTP request before dispatch, and on the API Gateway `/api/remote.mux` WebSocket upgrade before negotiation; `ctx.connection.authorizeApiRequest` runs the same registry for another carrier. `request.method` is present only for an `/api/<method>` HTTP request. The first denial ends the request: an explicit `{ allow: false }` decision answers with its own `status`, where an HTTP `401` carries `WWW-Authenticate: Bearer` and an upgrade is rejected with that status, and a gate whose `authorize` rejects denies with `403` and discards the thrown cause without logging it. A gate only adds a requirement: a request without a browser session still receives `401` before any gate runs, an empty registry admits every authenticated request, and a decision's `privileged` flag grants no method.
 
 <a id="connection-generation"></a>
 ## Connection generation
