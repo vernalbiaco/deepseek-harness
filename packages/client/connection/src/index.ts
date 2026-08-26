@@ -42,6 +42,12 @@ export {
   serverResponseSchema,
 } from './rpc-schema.ts'
 export { HostConnectionService } from './rpc-host.ts'
+export type {
+  ApiGateDecision,
+  ApiGateRequest,
+  ApiGateVerdict,
+  ApiRequestGate,
+} from './gates.ts'
 
 export { API_PATH } from './api-path.ts'
 

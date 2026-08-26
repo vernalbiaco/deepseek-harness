@@ -12,6 +12,7 @@ import { bridge } from './http-bridge.ts'
 import { isTrustedApiRequest } from './api-request-trust.ts'
 import { API_PATH } from './api-path.ts'
 import type { BrowserAuth } from './browser-auth.ts'
+import { ApiGateRegistry, type ApiGateRequest, type ApiGateVerdict, type ApiRequestGate } from './gates.ts'
 import type {
   ConnectionIndexRequest,
   ConnectionIndexResponse,
@@ -60,6 +61,7 @@ declare module '@deepseek-ai/cordis' {
 export class HostConnectionService extends Service implements HostConnectionHandle {
   private readonly interceptors = new Map<string, ConnectionRpcInterceptor>()
   private readonly fetchRoutes = new Map<string, RegisteredFetchRoute>()
+  private readonly gateRegistry = new ApiGateRegistry()
 
   /**
    * Provide the Host half over the active HTTP server.
@@ -107,6 +109,20 @@ export class HostConnectionService extends Service implements HostConnectionHand
   /** Add this process's launch token to the clean application URL. */
   authenticatedUrl(baseUrl: string): string {
     return this.browserAuth.authenticatedUrl(baseUrl)
+  }
+
+  /** Ordered admission gates consulted before any `/api` request dispatches. */
+  get gates(): { register(gate: ApiRequestGate): () => void } {
+    return { register: gate => this.gateRegistry.register(gate) }
+  }
+
+  /**
+   * Run every registered gate against one request.
+   * @param request - the request under consideration.
+   * @returns the aggregate verdict.
+   */
+  authorizeApiRequest(request: ApiGateRequest): Promise<ApiGateVerdict> {
+    return this.gateRegistry.authorize(request)
   }
 
   /**
