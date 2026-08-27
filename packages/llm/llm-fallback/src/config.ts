@@ -51,14 +51,32 @@ export interface ResolvedFallbackConfig {
   readonly failoverCodes: ReadonlySet<string>
 }
 
+const KNOWN_CONFIG_KEYS: ReadonlySet<string> = new Set(['backups', 'failoverCodes'])
+
+/**
+ * Reject an entry key outside {@link Config}. Schemastery passes unknown keys
+ * through rather than rejecting them, so this is the only guard against a typo
+ * silently doing nothing.
+ *
+ * @param config - the composition entry as written in cordis.yml.
+ * @throws when a key outside `backups` and `failoverCodes` is present.
+ */
+function validateConfigKeys(config: Config): void {
+  for (const key of Object.keys(config)) {
+    if (!KNOWN_CONFIG_KEYS.has(key)) throw new Error(`llm-fallback: unknown key "${key}"`)
+  }
+}
+
 /**
  * Validate the composition entry and resolve it into runtime lookups.
  *
  * @param config - the composition entry as written in cordis.yml.
  * @returns the ordered chain and the code membership set.
- * @throws when the chain is empty, holds a duplicate route, or supplies an empty code list.
+ * @throws when the entry carries an unknown key, the chain is empty, holds a
+ * duplicate route, or supplies an empty code list.
  */
 export function resolveConfig(config: Config): ResolvedFallbackConfig {
+  validateConfigKeys(config)
   if (config.backups.length === 0) {
     throw new Error('llm-fallback: backups must list at least one route')
   }

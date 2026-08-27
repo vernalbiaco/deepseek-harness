@@ -31,4 +31,9 @@ describe('resolveConfig()', () => {
     expect(() => resolveConfig({ backups: [{ provider: 'p', model: 'm' }], failoverCodes: [] }))
       .toThrow('llm-fallback: failoverCodes must list at least one code when present')
   })
+
+  it('rejects an unknown key', () => {
+    expect(() => resolveConfig({ backups: [{ provider: 'p', model: 'm' }], nope: 1 } as never))
+      .toThrow('llm-fallback: unknown key "nope"')
+  })
 })
