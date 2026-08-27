@@ -1212,7 +1212,7 @@ export interface FallbackRoute {
 }
 ```
 
-Source: [`packages/llm/llm-fallback/src/config.ts:30`](../packages/llm/llm-fallback/src/config.ts)
+Source: [`packages/llm/llm-fallback/src/config.ts:33`](../packages/llm/llm-fallback/src/config.ts)
 
 <a id="deepseek-aidsh-llm-pi-ai"></a>
 

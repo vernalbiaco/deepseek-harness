@@ -331,6 +331,27 @@ describe('llm-fallback invariants', () => {
     }).toThrow(/request\/header route wrong\/m1 must match the pending llm\/fallback target b1\/m1/)
   })
 
+  it('retires a pending target when the step that owns the record closes', async () => {
+    const ctx = await setup()
+    const session = openStep(ctx, 'fallback-invariant-unconfirmed-target')
+    // A backup naming the route already in force appends no `request/header`
+    // of its own, so this record's `to` is never confirmed. The header a later
+    // turn appends belongs to that turn's own route selection, not to this
+    // record's retry.
+    session.append('llm/fallback', { ...move, to: { provider: 'primary', model: 'm' } })
+    session.append('step/end', { turn: 1, step: 1 })
+    session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    session.append('turn/start', { turn: 2 })
+    session.append('step/start', { turn: 2, step: 1 })
+
+    expect(() => {
+      session.append('request/header', {
+        header: { config: { provider: 'other', model: 'm9' } },
+        reason: 'change',
+      })
+    }).not.toThrow()
+  })
+
   it('validates existing session histories on late registration', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)

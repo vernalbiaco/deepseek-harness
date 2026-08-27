@@ -9,9 +9,12 @@ import type { FallbackRoute } from './types.ts'
 
 /**
  * Codes that move the cursor when no downstream policy owns the failure.
- * The transient codes act only after `dsh-llm-retry` exhausts its budget and
- * delegates; the credential, quota, and routing codes are outside every
- * retryable set, so they reach this plugin on the first failure.
+ * The split follows `DEFAULT_RETRYABLE_CODES`, the provider retry policy's own
+ * default (packages/llm/llm/src/retry-policy.ts): the transient codes are
+ * inside it and act only once `dsh-llm-retry` exhausts its budget and
+ * delegates, while the credential, quota, and routing codes are outside it and
+ * reach this plugin on the first failure. A provider that configures its own
+ * `retryableCodes`, or always mode, moves that split.
  */
 export const DEFAULT_FAILOVER_CODES: readonly string[] = Object.freeze([
   'RATE_LIMIT',

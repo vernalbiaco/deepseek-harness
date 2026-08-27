@@ -62,24 +62,28 @@ function routeInForce(history: readonly SessionEvent[]): FallbackRoute | undefin
  * here, backward, rather than from `llm/fallback` looking ahead for a header
  * that does not exist yet at append time.
  *
- * The check goes silent when a record's `to` equals the route that just
- * failed: `buildRequest` only appends a new `request/header` when the header
- * actually differs (packages/core/agent-loop/src/agent.ts:483-488), so a
- * backup that names the session's own current route produces no header and
- * this forward relationship is never confirmed for that record.
- * `resolveConfig` (./config.ts) rejects a duplicate route within `backups`,
- * but not one that duplicates the session's own primary — that route is not
- * itself a member of `backups` — so `backups: [primary, b1]` against a
- * session already on `primary` is reachable configuration. The cascade still
- * terminates by chain exhaustion and the durable log still shows the record.
+ * The scan stops at the owning step's `step/end`, which `AgentLoop.turn()`
+ * appends from a `finally` (packages/core/agent-loop/src/agent.ts:279-292):
+ * a record whose retry appends no header is retired with its step instead of
+ * staying armed against a header some later turn appends. A retry appends no
+ * header when its route already equals the one in force, because
+ * `buildRequest` appends `request/header` only when the header differs
+ * (packages/core/agent-loop/src/agent.ts:483-488), and `resolveConfig`
+ * (./config.ts) rejects a duplicate route within `backups` but not one that
+ * duplicates the session's own primary — that route is not itself a member of
+ * `backups` — so `backups: [primary, b1]` against a session already on
+ * `primary` is reachable configuration. A retry abandoned before
+ * `buildRequest` runs leaves the same record unconfirmed.
  */
 function validateHeaderFollowsFallback(
   history: readonly SessionEvent[],
   event: SessionEvent<'request/header'>,
   fail: InvariantFailure,
 ): void {
-  const prior = history.findLast((candidate): candidate is SessionEvent<'llm/fallback'> | SessionEvent<'request/header'> =>
-    candidate.type === 'llm/fallback' || candidate.type === 'request/header')
+  const prior = history.findLast(candidate =>
+    candidate.type === 'llm/fallback'
+    || candidate.type === 'request/header'
+    || candidate.type === 'step/end')
   if (prior?.type !== 'llm/fallback') return
   const { to } = prior.data
   const { provider, model } = event.data.header.config

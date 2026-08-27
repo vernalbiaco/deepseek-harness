@@ -8,11 +8,11 @@ import Loader, { type Entry } from '@deepseek-ai/cordis-plugin-loader'
 import Include from '@deepseek-ai/cordis-plugin-include'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
-import LlmRuntime, { createUserMessage, LlmAdapter } from '@deepseek-ai/dsh-llm'
-import type { GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
+import LlmRuntime, { createUserMessage, LlmAdapter, resolveRetryPolicy } from '@deepseek-ai/dsh-llm'
+import type { GenerateOptions, ResolvedRetryPolicy, StreamChunk } from '@deepseek-ai/dsh-llm'
 import * as LlmRetry from '@deepseek-ai/dsh-llm-retry'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
-import type { SessionEvent } from '@deepseek-ai/dsh-session'
+import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import * as LlmFallback from '../src/index.ts'
@@ -31,9 +31,9 @@ function failure(code: string, message = 'scripted failure'): StreamChunk[] {
 }
 
 /**
- * Serves a scripted response queue per `provider/model` route. A minimal
- * local copy of `tests/fallback.spec.ts`'s `RouteAdapter` rather than a
- * cross-file import: that file is being edited by a concurrent fix round.
+ * Serves a scripted response queue per `provider/model` route. Local rather
+ * than imported from `tests/fallback.spec.ts`: importing a spec module would
+ * collect that file's suites a second time, under this file's run.
  */
 class RouteAdapter extends LlmAdapter {
   readonly requests: GenerateOptions[] = []
@@ -50,6 +50,18 @@ class RouteAdapter extends LlmAdapter {
       throw new Error(`loader-composition test script exhausted for route "${key}"`)
     }
     yield* queue.length === 1 ? queue[0]! : queue.shift()!
+  }
+}
+
+/** Serves the same scripted routes under an unbounded always-mode retry policy. */
+class AlwaysRetryAdapter extends RouteAdapter {
+  private readonly policy = resolveRetryPolicy({
+    mode: 'always',
+    backoff: { initialDelayMs: 1, maxDelayMs: 1, jitterRatio: 0 },
+  }, 'loader test provider retryPolicy')
+
+  override providerRetryPolicy(_provider: string): ResolvedRetryPolicy {
+    return this.policy
   }
 }
 
@@ -238,5 +250,77 @@ describe('real Loader composition', () => {
       '        model: m1',
       '    nope: 1',
     ])).rejects.toThrow('llm-fallback: unknown key "nope"')
+  })
+})
+
+const FALLBACK_ENTRY: readonly string[] = [
+  "- name: '@deepseek-ai/dsh-llm-fallback'",
+  '  config:',
+  '    backups:',
+  '      - provider: b1',
+  '        model: m1',
+]
+
+/**
+ * Drive one turn against a scripted adapter on a loaded composition.
+ * @param loaded - the context returned by {@link loadYaml}.
+ * @param adapter - the adapter serving the composition's routes.
+ * @param id - the session id for this run.
+ * @returns the session the turn ran in.
+ */
+async function runTurn(loaded: Context, adapter: RouteAdapter, id: string): Promise<Session> {
+  loaded.llm.registerAdapter(['primary', 'b1'], adapter)
+  const agent = loaded.agentLoop.create(SessionId(id), { provider: 'primary', model: 'p' })
+  agent.followup(createUserMessage({
+    content: [{ type: 'text', text: 'go' }],
+    source: { kind: 'user' },
+  }))
+  await agent.whenIdle()
+  return agent.session
+}
+
+describe('always-mode retry composition order', () => {
+  it('cascades to the backup with dsh-llm-retry mounted first', async () => {
+    const loaded = await loadYaml([
+      ...MOUNT_PREFIX,
+      "- name: '@deepseek-ai/dsh-llm-retry'",
+      ...FALLBACK_ENTRY,
+      "- name: '@deepseek-ai/dsh-agent-loop'",
+    ])
+    const adapter = new AlwaysRetryAdapter({
+      'primary/p': [failure('RATE_LIMIT', 'limited')],
+      'b1/m1': [textResponse('served by the backup')],
+    })
+
+    const session = await runTurn(loaded, adapter, 'loader-always-retry-first')
+
+    // Always mode consults downstream before applying its own retry, so the
+    // failover decision wins the first failure and the same route is never
+    // re-requested.
+    expect(adapter.requests.map(r => `${r.provider}/${r.model}`)).toEqual(['primary/p', 'b1/m1'])
+    expect(session.events.filter(event => event.type === 'llm/fallback')).toHaveLength(1)
+    expect(session.events.filter(event => event.type === 'llm/retry')).toHaveLength(0)
+  })
+
+  it('leaves the chain unreachable with dsh-llm-fallback mounted first', async () => {
+    const loaded = await loadYaml([
+      ...MOUNT_PREFIX,
+      ...FALLBACK_ENTRY,
+      "- name: '@deepseek-ai/dsh-llm-retry'",
+      "- name: '@deepseek-ai/dsh-agent-loop'",
+    ])
+    // The primary recovers on its second request. A route that failed
+    // indefinitely would hang this composition rather than fail it: the inner
+    // always-mode retry never delegates, so nothing ends the turn.
+    const adapter = new AlwaysRetryAdapter({
+      'primary/p': [failure('RATE_LIMIT', 'limited'), textResponse('primary recovered')],
+      'b1/m1': [textResponse('never requested')],
+    })
+
+    const session = await runTurn(loaded, adapter, 'loader-always-fallback-first')
+
+    expect(adapter.requests.map(r => `${r.provider}/${r.model}`)).toEqual(['primary/p', 'primary/p'])
+    expect(session.events.filter(event => event.type === 'llm/fallback')).toHaveLength(0)
+    expect(session.events.filter(event => event.type === 'llm/retry')).toHaveLength(1)
   })
 })
