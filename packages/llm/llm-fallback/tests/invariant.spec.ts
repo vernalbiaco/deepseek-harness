@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
-import SessionStore, { SessionId, type Session } from '@deepseek-ai/dsh-session'
+import SessionStore, { SessionId, type Session, type SessionEvent } from '@deepseek-ai/dsh-session'
 import { ProviderRequestId } from '@deepseek-ai/dsh-llm'
 import InvariantRegistry from '@deepseek-ai/dsh-invariants'
 import * as FallbackInvariant from '@deepseek-ai/dsh-llm-fallback/invariant'
@@ -183,9 +183,14 @@ describe('llm-fallback invariants', () => {
 
   it('rejects a from route that does not match the durable header in force', async () => {
     const ctx = await setup()
-    const session = openStep(ctx, 'fallback-invariant-from-mismatch')
+    const wrongProvider = openStep(ctx, 'fallback-invariant-from-provider-mismatch')
     expect(() => {
-      session.append('llm/fallback', { ...move, from: { provider: 'other', model: 'm' } })
+      wrongProvider.append('llm/fallback', { ...move, from: { provider: 'other', model: 'm' } })
+    }).toThrow(/does not match the failed request route primary\/m/)
+
+    const wrongModel = openStep(ctx, 'fallback-invariant-from-model-mismatch')
+    expect(() => {
+      wrongModel.append('llm/fallback', { ...move, from: { provider: 'primary', model: 'other' } })
     }).toThrow(/does not match the failed request route primary\/m/)
   })
 
@@ -246,7 +251,7 @@ describe('llm-fallback invariants', () => {
     }).toThrow(/positive safe integer/)
   })
 
-  it('starts a fresh cursor sequence for a new turn number', async () => {
+  it('starts a fresh cursor sequence for a new turn number without re-checking a header an earlier failover already matched', async () => {
     const ctx = await setup()
     const session = openStep(ctx, 'fallback-invariant-turn-reset')
     session.append('llm/fallback', move)
@@ -267,7 +272,7 @@ describe('llm-fallback invariants', () => {
     }).not.toThrow()
   })
 
-  it('restarts the cursor sequence at a later step within the same turn', async () => {
+  it('restarts the cursor sequence at a later step within the same turn without re-checking a header an earlier failover already matched', async () => {
     const ctx = await setup()
     const session = openStep(ctx, 'fallback-invariant-step-reset')
     session.append('llm/fallback', move)
@@ -298,14 +303,32 @@ describe('llm-fallback invariants', () => {
 
   it('rejects a retried request header naming a route other than the pending target', async () => {
     const ctx = await setup()
-    const session = openStep(ctx, 'fallback-invariant-header-mismatch')
-    session.append('llm/fallback', move)
+    const bothWrong = openStep(ctx, 'fallback-invariant-header-mismatch')
+    bothWrong.append('llm/fallback', move)
     expect(() => {
-      session.append('request/header', {
+      bothWrong.append('request/header', {
         header: { config: { provider: 'wrong', model: 'm9' } },
         reason: 'change',
       })
     }).toThrow(/request\/header route wrong\/m9 must match the pending llm\/fallback target b1\/m1/)
+
+    const wrongModel = openStep(ctx, 'fallback-invariant-header-model-mismatch')
+    wrongModel.append('llm/fallback', move)
+    expect(() => {
+      wrongModel.append('request/header', {
+        header: { config: { provider: 'b1', model: 'm9' } },
+        reason: 'change',
+      })
+    }).toThrow(/request\/header route b1\/m9 must match the pending llm\/fallback target b1\/m1/)
+
+    const wrongProvider = openStep(ctx, 'fallback-invariant-header-provider-mismatch')
+    wrongProvider.append('llm/fallback', move)
+    expect(() => {
+      wrongProvider.append('request/header', {
+        header: { config: { provider: 'wrong', model: 'm1' } },
+        reason: 'change',
+      })
+    }).toThrow(/request\/header route wrong\/m1 must match the pending llm\/fallback target b1\/m1/)
   })
 
   it('validates existing session histories on late registration', async () => {
@@ -329,6 +352,62 @@ describe('llm-fallback invariants', () => {
     })
     await ctx.plugin(InvariantRegistry)
     await expect(ctx.plugin(FallbackInvariant)).resolves.toBeDefined()
+  })
+
+  it('rejects a record whose turn disagrees with the open step\'s own turn', async () => {
+    const ctx = await setup()
+    // `turn/start` and `step/start` disagree, so the turn check against the
+    // open turn passes and only the open step's turn catches the record.
+    const session = ctx.sessions.create(SessionId('fallback-invariant-step-turn-mismatch'))
+    session.append('turn/start', { turn: 1 })
+    session.append('step/start', { turn: 2, step: 1 })
+    session.append('request/header', {
+      header: { config: { provider: 'primary', model: 'm' } },
+      reason: 'initial',
+    })
+    expect(() => {
+      session.append('llm/fallback', move)
+    }).toThrow(/open step is 2\/1/)
+  })
+
+  it('validates a stored request header against its pending failover on late registration', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const session = openStep(ctx, 'fallback-invariant-late-header')
+    session.append('llm/fallback', move)
+    session.append('request/header', {
+      header: { config: { provider: 'wrong', model: 'm9' } },
+      reason: 'change',
+    })
+    await ctx.plugin(InvariantRegistry)
+    await expect(ctx.plugin(FallbackInvariant))
+      .rejects.toThrow(/request\/header route wrong\/m9 must match the pending llm\/fallback target b1\/m1/)
+  })
+
+  it('validates a session restored through the persistence seed path', async () => {
+    // `dsh-session-persistence` restores a stored log through
+    // `sessions.prepare(id, { seed, meta, seedSource: 'persistence' })` and
+    // then enters and announces it
+    // (packages/session/session-persistence/src/coordinator.ts:905), so
+    // `session/created` carries the whole restored history. Nothing appends,
+    // so that announcement is the only validation a resumed session takes.
+    const stored = new Context()
+    await stored.plugin(SessionStore)
+    const origin = openStep(stored, 'fallback-invariant-restored')
+    origin.append('llm/fallback', { ...move, from: { provider: 'other', model: 'm' } })
+    const seed = structuredClone(origin.events) as SessionEvent[]
+    const meta = structuredClone(origin.header)
+
+    const ctx = await setup()
+    expect(() => {
+      const restored = ctx.sessions.prepare(SessionId('fallback-invariant-restored'), {
+        seed,
+        meta,
+        seedSource: 'persistence',
+      })
+      ctx.sessions.enter(restored)
+      ctx.sessions.announce(restored)
+    }).toThrow(/does not match the failed request route primary\/m/)
   })
 
   it('validates newly created sessions the same way as pre-existing ones', async () => {

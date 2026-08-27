@@ -47,6 +47,20 @@ describe('adoptIfChanged()', () => {
     expect(adoptIfChanged(state, { provider: 'b1', model: 'm1' })).toBe(false)
   })
 
+  it('stages a model switch within the provider it last wrote', () => {
+    const state = createState()
+    state.lastWritten = { provider: 'b1', model: 'm1' }
+    expect(adoptIfChanged(state, { provider: 'b1', model: 'm2' })).toBe(true)
+    expect(state.pending).toEqual({ provider: 'b1', model: 'm2' })
+  })
+
+  it('stages a provider switch keeping the model it last wrote', () => {
+    const state = createState()
+    state.lastWritten = { provider: 'b1', model: 'm1' }
+    expect(adoptIfChanged(state, { provider: 'b2', model: 'm1' })).toBe(true)
+    expect(state.pending).toEqual({ provider: 'b2', model: 'm1' })
+  })
+
   it('stages an external route instead of applying it immediately', () => {
     const state = createState()
     advance(state, chain, primary)
@@ -88,6 +102,14 @@ describe('advance()', () => {
     advance(state, chain, { ...primary, reasoningEffort: 'high' })
     advance(state, chain, { provider: 'b1', model: 'm1' })
     expect(state.primary).toEqual({ provider: 'p', model: 'm', reasoningEffort: 'high' })
+  })
+
+  it('detaches the primary it captures from the caller\'s route', () => {
+    const state = createState()
+    const failed = { ...primary }
+    advance(state, chain, failed)
+    failed.model = 'mutated'
+    expect(state.primary).toEqual(primary)
   })
 
   it('detaches the route it returns from the configured chain', () => {
