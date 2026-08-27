@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
+import type { Fiber } from '@deepseek-ai/cordis'
 import LlmRuntime, { createUserMessage, LlmAdapter, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import type { GenerateOptions, LlmResolvedModelInfo, StreamChunk } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
@@ -61,7 +62,7 @@ async function harness(
   config: Config,
   beforeFallback?: (ctx: Context) => void,
   afterFallback?: (ctx: Context) => void,
-): Promise<Context> {
+): Promise<{ ctx: Context; fiber: Fiber }> {
   const ctx = new Context()
   await ctx.plugin(LlmRuntime)
   await ctx.plugin(SessionStore)
@@ -73,13 +74,13 @@ async function harness(
   await ctx.plugin(ToolRuntime)
   await ctx.plugin(AgentRegistry)
   beforeFallback?.(ctx)
-  await ctx.plugin(Object.assign((inner: Context) => {
+  const fiber = await ctx.plugin(Object.assign((inner: Context) => {
     fallback.apply(inner, config)
   }, { inject: fallback.inject }))
   afterFallback?.(ctx)
   await ctx.plugin(AgentLoop, { agents: [] })
   ctx.llm.registerAdapter(['primary', 'b1', 'b2'], adapter)
-  return ctx
+  return { ctx, fiber }
 }
 
 function fallbackEvents(agent: Agent): SessionEvent<'llm/fallback'>[] {
@@ -113,7 +114,7 @@ describe('backup-model failover', () => {
       'primary/m': [failure('RATE_LIMIT', 'limited')],
       'b1/m1': [textResponse('served by the backup')],
     })
-    context = await harness(adapter, ONE_BACKUP)
+    ;({ ctx: context } = await harness(adapter, ONE_BACKUP))
     const agent = context.agentLoop.create(SessionId('failover-basic'), {
       provider: 'primary',
       model: 'm',
@@ -141,7 +142,7 @@ describe('backup-model failover', () => {
       'primary/m': [failure('AUTH', 'bad key')],
       'b1/m1': [textResponse('ok')],
     })
-    context = await harness(adapter, ONE_BACKUP)
+    ;({ ctx: context } = await harness(adapter, ONE_BACKUP))
     const agent = context.agentLoop.create(SessionId('failover-auth'), {
       provider: 'primary',
       model: 'm',
@@ -160,12 +161,12 @@ describe('backup-model failover', () => {
     const adapter = new RouteAdapter({
       'primary/m': [failure('CONTEXT_WINDOW_EXCEEDED', 'too long')],
     })
-    context = await harness(adapter, ONE_BACKUP, (ctx) => {
+    ;({ ctx: context } = await harness(adapter, ONE_BACKUP, (ctx) => {
       ctx.on('agent/request-error', (_payload, next): Promise<RequestErrorAction> => {
         reached += 1
         return next()
       })
-    })
+    }))
     const agent = context.agentLoop.create(SessionId('failover-overflow'), {
       provider: 'primary',
       model: 'm',
@@ -185,7 +186,7 @@ describe('backup-model failover', () => {
       'b1/m1': [failure('SERVER')],
       'b2/m2': [failure('SERVER')],
     })
-    context = await harness(adapter, TWO_BACKUPS)
+    ;({ ctx: context } = await harness(adapter, TWO_BACKUPS))
     const agent = context.agentLoop.create(SessionId('failover-exhausted'), {
       provider: 'primary',
       model: 'm',
@@ -225,7 +226,7 @@ describe('backup-model failover', () => {
       'primary/m': [failure('RATE_LIMIT'), textResponse('primary recovered')],
       'b1/m1': [textResponse('backup')],
     })
-    context = await harness(adapter, ONE_BACKUP)
+    ;({ ctx: context } = await harness(adapter, ONE_BACKUP))
     const agent = context.agentLoop.create(SessionId('failover-reset'), {
       provider: 'primary',
       model: 'm',
@@ -256,13 +257,13 @@ describe('backup-model failover', () => {
     // then declines by calling `next()`, letting the plugin's own next()
     // (which reaches this listener since it's registered afterFallback, INNER)
     // see no retry and take over.
-    context = await harness(adapter, ONE_BACKUP, undefined, (ctx) => {
+    ;({ ctx: context } = await harness(adapter, ONE_BACKUP, undefined, (ctx) => {
       ctx.on('agent/request-error', async (_payload, next): Promise<RequestErrorAction> => {
         if (downstreamRetries >= maxDownstreamRetries) return next()
         downstreamRetries += 1
         return { kind: 'retry' }
       })
-    })
+    }))
     const agent = context.agentLoop.create(SessionId('failover-retry-wins'), {
       provider: 'primary',
       model: 'm',
@@ -271,11 +272,6 @@ describe('backup-model failover', () => {
     prompt(agent, 'go')
     await agent.whenIdle()
 
-    // The downstream policy retries the same route while its budget remains —
-    // the plugin never runs its own logic during that phase, so the cursor
-    // stays put and no llm/fallback record is appended. Only once the policy
-    // declines (budget exhausted) does the plugin advance the cursor and fail
-    // over to the backup.
     expect(adapter.requests.map(r => r.provider)).toEqual(['primary', 'primary', 'b1'])
     expect(fallbackEvents(agent).map(event => event.data)).toEqual([{
       turn: 1,
@@ -292,21 +288,11 @@ describe('backup-model failover', () => {
       'primary/m': [failure('RATE_LIMIT')],
       'b1/m1': [textResponse('backup')],
     })
-    const ctx = new Context()
-    context = ctx
-    await ctx.plugin(LlmRuntime)
-    await ctx.plugin(SessionStore)
-    await ctx.plugin(SystemPrompt)
-    await ctx.plugin(ToolRuntime)
-    await ctx.plugin(AgentRegistry)
-    const fiber = await ctx.plugin(Object.assign((inner: Context) => {
-      fallback.apply(inner, ONE_BACKUP)
-    }, { inject: fallback.inject }))
-    await ctx.plugin(AgentLoop, { agents: [] })
-    ctx.llm.registerAdapter(['primary', 'b1'], adapter)
-    await fiber.dispose()
+    const mounted = await harness(adapter, ONE_BACKUP)
+    context = mounted.ctx
+    await mounted.fiber.dispose()
 
-    const agent = ctx.agentLoop.create(SessionId('failover-disposed'), {
+    const agent = context.agentLoop.create(SessionId('failover-disposed'), {
       provider: 'primary',
       model: 'm',
     })
@@ -324,7 +310,7 @@ describe('composition with other route owners', () => {
       'primary/m': [failure('RATE_LIMIT')],
       'b1/m1': [textResponse('backup settled')],
     })
-    context = await harness(adapter, ONE_BACKUP, (ctx) => {
+    ;({ ctx: context } = await harness(adapter, ONE_BACKUP, (ctx) => {
       ctx.on('agent/request-error', async ({ agent }, next): Promise<RequestErrorAction> => {
         // Steer into the open turn's next step, before the failover decision is taken.
         if (adapter.requests.length === 1) {
@@ -332,7 +318,7 @@ describe('composition with other route owners', () => {
         }
         return next()
       })
-    })
+    }))
     const agent = context.agentLoop.create(SessionId('failover-steering'), {
       provider: 'primary',
       model: 'm',
@@ -361,12 +347,12 @@ describe('composition with other route owners', () => {
       'b1/m1': [textResponse('backup')],
       'b2/m2': [textResponse('picked')],
     })
-    context = await harness(adapter, TWO_BACKUPS, undefined, (ctx) => {
+    ;({ ctx: context } = await harness(adapter, TWO_BACKUPS, undefined, (ctx) => {
       ctx.on('agent/request', async (_payload, next) => {
         const resolved = await next()
         return override === undefined ? resolved : { ...resolved, ...override }
       })
-    })
+    }))
     const agent = context.agentLoop.create(SessionId('failover-adopt'), {
       provider: 'primary',
       model: 'm',
@@ -410,12 +396,12 @@ describe('boundaries the ordinary loop rarely exercises', () => {
     // per-model default would. Registered afterFallback (INNER) so the
     // plugin's own request handler still gets the final say once it has an
     // opinion — it only lets this through for the very first request.
-    context = await harness(adapter, ONE_BACKUP, undefined, (ctx) => {
+    ;({ ctx: context } = await harness(adapter, ONE_BACKUP, undefined, (ctx) => {
       ctx.on('agent/request', async (_payload, next) => ({
         ...await next(),
         reasoningEffort: ReasoningEffortId('high'),
       }))
-    })
+    }))
     const agent = context.agentLoop.create(SessionId('failover-reasoning-effort'), {
       provider: 'primary',
       model: 'm',
@@ -434,9 +420,9 @@ describe('boundaries the ordinary loop rarely exercises', () => {
       ])
   })
 
-  it('assembles the caller\'s default route for a context with no agent', async () => {
+  it('leaves the assembly untouched for a context with no agent', async () => {
     const adapter = new RouteAdapter({ 'primary/m': [textResponse('unused')] })
-    context = await harness(adapter, ONE_BACKUP)
+    ;({ ctx: context } = await harness(adapter, ONE_BACKUP))
 
     // system-prompt/assemble can run for a context with no agent (its
     // AssembleContext.agent defaults to undefined); the plugin has no cursor
@@ -449,12 +435,12 @@ describe('boundaries the ordinary loop rarely exercises', () => {
       'primary/m': [failure('RATE_LIMIT')],
       'b1/m1': [textResponse('must not run')],
     })
-    context = await harness(adapter, ONE_BACKUP, (ctx) => {
+    ;({ ctx: context } = await harness(adapter, ONE_BACKUP, (ctx) => {
       ctx.on('agent/request-error', async ({ agent }, next): Promise<RequestErrorAction> => {
         agent.cancel({ kind: 'user' })
         return next()
       })
-    })
+    }))
     const agent = context.agentLoop.create(SessionId('failover-aborted-signal'), {
       provider: 'primary',
       model: 'm',
@@ -473,7 +459,7 @@ describe('boundaries the ordinary loop rarely exercises', () => {
 
   it('leaves a failure to a downstream policy when no request header exists yet', async () => {
     const adapter = new RouteAdapter({ 'primary/m': [textResponse('unused')] })
-    context = await harness(adapter, ONE_BACKUP)
+    ;({ ctx: context } = await harness(adapter, ONE_BACKUP))
     // Never prompted: no `request/header` has ever been logged for this agent,
     // so the durable route `loggedRoute()` reads back is `undefined`.
     const agent = context.agentLoop.create(SessionId('failover-no-header'), {
