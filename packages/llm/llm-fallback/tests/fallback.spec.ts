@@ -637,6 +637,42 @@ describe('boundaries the ordinary loop rarely exercises', () => {
       ])
   })
 
+  it('re-asserts the primary with the effort a standing selection carries after a turn reset', async () => {
+    const adapter = new RouteAdapter({
+      'primary/m': [failure('RATE_LIMIT'), textResponse('primary recovered')],
+      'b1/m1': [textResponse('backup')],
+    })
+    ;({ ctx: context } = await harness(adapter, ONE_BACKUP))
+    const agent = context.agentLoop.create(SessionId('failover-effort-standing-owner'), {
+      provider: 'primary',
+      model: 'm',
+    })
+    // A route owner asserting one unchanged selection on every request: the
+    // composition where a turn's first delegation differs from the backup this
+    // plugin wrote while naming the route the reset returns to.
+    installModelSelection(agent.ctx, {
+      current: { provider: 'primary', model: 'm', reasoningEffort: ReasoningEffortId('high') },
+      assembled: undefined,
+    })
+
+    prompt(agent, 'first')
+    await agent.whenIdle()
+    prompt(agent, 'second')
+    await agent.whenIdle()
+    // A third turn, because an assembly that promotes a route staged in turn 2
+    // is the earliest one that could replace the captured primary — and with it
+    // the effort captured alongside the route.
+    prompt(agent, 'third')
+    await agent.whenIdle()
+
+    // The effort captured with the primary at failover time reaches the request
+    // that returns to it, so crossing a turn boundary under a route owner costs
+    // the session's effort nothing.
+    expect(adapter.requests.map(r => `${r.provider}/${r.model}:${r.reasoningEffort}`))
+      .toEqual(['primary/m:high', 'b1/m1:undefined', 'primary/m:high', 'primary/m:high'])
+    expect(fallbackEvents(agent)).toHaveLength(1)
+  })
+
   it('leaves the assembly untouched for a context with no agent', async () => {
     const adapter = new RouteAdapter({ 'primary/m': [textResponse('unused')] })
     ;({ ctx: context } = await harness(adapter, ONE_BACKUP))
