@@ -165,6 +165,10 @@ function validateSession(session: Session, fail: InvariantFailure): void {
   }
 }
 
+/* jscpd:ignore-start -- deliberately mirrors dsh-llm-retry's companion: both
+   register a two-event validator through the same invariant protocol, so the
+   installer and the `apply` export follow from that protocol rather than from
+   anything this package chooses. */
 /** Install validation for loaded and newly appended failover records. */
 const install: InvariantInstaller = Object.assign((ctx: Context, fail: InvariantFailure) => {
   for (const session of ctx.sessions.list()) validateSession(session, fail)
@@ -184,3 +188,4 @@ const install: InvariantInstaller = Object.assign((ctx: Context, fail: Invariant
  */
 export const apply = (ctx: Context): Promise<() => void> =>
   Promise.resolve(ctx.invariants.register(PACKAGE_NAME, install))
+/* jscpd:ignore-end */
