@@ -23,12 +23,12 @@ export interface FallbackState {
   cursor: number
   /** Route captured before the first move, re-asserted when the cursor returns to zero. */
   primary: SelectedRoute | undefined
+  /** Route adopted from outside this plugin, applied at the next assembly. */
+  pending: SelectedRoute | undefined
   /** Route this plugin most recently applied, used to detect an external change. */
   lastWritten: FallbackRoute | undefined
   /** Turn that last reset the cursor, so mid-turn steering cannot reset again. */
   lastResetTurn: number | undefined
-  /** Route snapshotted when the current step entered prompt assembly. */
-  assembled: SelectedRoute | undefined
 }
 
 /**
@@ -39,9 +39,9 @@ export function createState(): FallbackState {
   return {
     cursor: 0,
     primary: undefined,
+    pending: undefined,
     lastWritten: undefined,
     lastResetTurn: undefined,
-    assembled: undefined,
   }
 }
 
@@ -105,21 +105,34 @@ export function targetFor(
 }
 
 /**
- * Adopt a route changed outside this plugin as the new primary.
- * A delegated route equal to this plugin's last write is the durable log
- * echoing that write; anything else is a user selection or settings change,
- * which outranks the cursor and restarts the chain from the new route.
+ * Stage a route changed outside this plugin, to take effect at the next assembly.
+ * A delegated route equal to this plugin's last write is the durable log echoing
+ * that write; anything else is a user selection or settings change. Staging
+ * rather than applying keeps the prompt and the request naming the same route
+ * for this step: the loop renders one system prompt per step, so a route change
+ * this plugin chooses to make must wait for the next assembly.
  *
  * @param state - the agent's failover state.
  * @param delegated - the route the rest of the `agent/request` waterfall produced.
- * @returns whether the delegated route was adopted and must be left unchanged.
+ * @returns whether the delegated route was staged.
  */
 export function adoptIfChanged(state: FallbackState, delegated: FallbackRoute): boolean {
   if (state.lastWritten === undefined) return false
   if (sameRoute(delegated, state.lastWritten)) return false
-  state.primary = { provider: delegated.provider, model: delegated.model }
-  state.cursor = 0
+  state.pending = { provider: delegated.provider, model: delegated.model }
   state.lastWritten = undefined
-  state.assembled = undefined
   return true
+}
+
+/**
+ * Apply a staged external route as the new primary, restarting the chain from it.
+ * Called once per assembly, before the step's target is computed.
+ *
+ * @param state - the agent's failover state.
+ */
+export function promotePending(state: FallbackState): void {
+  if (state.pending === undefined) return
+  state.primary = { ...state.pending }
+  state.cursor = 0
+  state.pending = undefined
 }

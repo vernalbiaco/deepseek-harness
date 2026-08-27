@@ -18,7 +18,7 @@ import type { Agent, RequestErrorAction } from '@deepseek-ai/dsh-agent'
 import { ReasoningEffortId, type LlmCallConfig } from '@deepseek-ai/dsh-llm'
 import type { AssembleContext, PromptAssembly } from '@deepseek-ai/dsh-system-prompt'
 import { Config, resolveConfig } from './config.ts'
-import { adoptIfChanged, advance, createState, resetForTurn, targetFor } from './state.ts'
+import { adoptIfChanged, advance, createState, promotePending, resetForTurn, targetFor } from './state.ts'
 import type { FallbackState, SelectedRoute } from './state.ts'
 
 export type { FallbackRoute, LlmFallbackEventData } from './types.ts'
@@ -82,8 +82,9 @@ export function apply(ctx: Context, config: Config): void {
       const assembled = await next()
       if (agent === undefined) return assembled
       const state = stateFor(agent)
+      // One assembly per step, so a route staged at request time takes effect here.
+      promotePending(state)
       const target = targetFor(state, chain)
-      state.assembled = target
       if (target === undefined) return assembled
       return {
         ...assembled,
@@ -99,25 +100,25 @@ export function apply(ctx: Context, config: Config): void {
   const disposeRequest = ctx.on('agent/request', async ({ agent }, next): Promise<LlmCallConfig> => {
     const resolved = await next()
     const state = stateFor(agent)
-    // The prompt for this step already names the assembled snapshot, so the
-    // request must use it even when an external route change is adopted here:
-    // applying the adopted route now would make {{model}} name a model the
-    // request does not use. Adoption still updates the cursor, so the new route
-    // becomes the target at the next assembly — the one-step deferral
-    // installModelSelection applies to a concurrent switch
-    // (packages/core/agent/src/model-selection.ts:28-31).
-    const selected = state.assembled
+    // Staged, not applied: a route this plugin chooses to change waits for the
+    // next assembly so the prompt and the request never name different models.
     adoptIfChanged(state, resolved)
-    if (selected === undefined) return resolved
-    state.lastWritten = { provider: selected.provider, model: selected.model }
+    // Computed fresh rather than snapshotted at assembly. `AgentLoop.step()`
+    // renders one system prompt per step and a `{ kind: 'retry' }` action
+    // re-enters its request loop without reassembling
+    // (packages/core/agent-loop/src/agent.ts:333-390), so a snapshot would send
+    // a failover retry back to the route that just failed.
+    const target = targetFor(state, chain)
+    if (target === undefined) return resolved
+    state.lastWritten = { provider: target.provider, model: target.model }
     const { reasoningEffort: _inheritedEffort, ...withoutInheritedEffort } = resolved
     return {
       ...withoutInheritedEffort,
-      provider: selected.provider,
-      model: selected.model,
-      ...selected.reasoningEffort === undefined
+      provider: target.provider,
+      model: target.model,
+      ...target.reasoningEffort === undefined
         ? {}
-        : { reasoningEffort: ReasoningEffortId(selected.reasoningEffort) },
+        : { reasoningEffort: ReasoningEffortId(target.reasoningEffort) },
     }
   })
 

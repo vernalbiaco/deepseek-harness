@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { resolveConfig } from '../src/config.ts'
-import { adoptIfChanged, advance, createState, resetForTurn, targetFor } from '../src/state.ts'
+import { adoptIfChanged, advance, createState, promotePending, resetForTurn, targetFor } from '../src/state.ts'
 
 const chain = resolveConfig({
   backups: [{ provider: 'b1', model: 'm1' }, { provider: 'b2', model: 'm2' }],
@@ -47,24 +47,15 @@ describe('adoptIfChanged()', () => {
     expect(adoptIfChanged(state, { provider: 'b1', model: 'm1' })).toBe(false)
   })
 
-  it('adopts an external route as the new primary and clears the cursor', () => {
+  it('stages an external route instead of applying it immediately', () => {
     const state = createState()
     advance(state, chain, primary)
     state.lastWritten = { provider: 'b1', model: 'm1' }
     expect(adoptIfChanged(state, { provider: 'picked', model: 'x' })).toBe(true)
-    expect(state.cursor).toBe(0)
-    expect(state.primary).toEqual({ provider: 'picked', model: 'x' })
+    expect(state.pending).toEqual({ provider: 'picked', model: 'x' })
+    expect(state.primary).toEqual(primary)
+    expect(state.cursor).toBe(1)
     expect(state.lastWritten).toBeUndefined()
-    expect(state.assembled).toBeUndefined()
-  })
-
-  it('clears a snapshotted target when it adopts', () => {
-    const state = createState()
-    advance(state, chain, primary)
-    state.lastWritten = { provider: 'b1', model: 'm1' }
-    state.assembled = { provider: 'b1', model: 'm1' }
-    adoptIfChanged(state, { provider: 'picked', model: 'x' })
-    expect(state.assembled).toBeUndefined()
   })
 })
 
@@ -134,13 +125,35 @@ describe('reset then adopt', () => {
     expect(targetFor(state, chain)).toEqual(primary)
   })
 
-  it('adopts a pick made between turns over the stale written route', () => {
+  it('stages a pick made between turns and applies it after promotion', () => {
     const state = createState()
     advance(state, chain, primary)
     state.lastWritten = { provider: 'b1', model: 'm1' }
     resetForTurn(state, 2)
     expect(adoptIfChanged(state, { provider: 'picked', model: 'x' })).toBe(true)
+    expect(targetFor(state, chain)).toEqual(primary)
+    promotePending(state)
+    expect(targetFor(state, chain)).toEqual({ provider: 'picked', model: 'x' })
+  })
+})
+
+describe('promotePending()', () => {
+  it('leaves the cursor alone when nothing is staged', () => {
+    const state = createState()
+    advance(state, chain, primary)
+    promotePending(state)
+    expect(state.cursor).toBe(1)
+    expect(state.primary).toEqual(primary)
+  })
+
+  it('promotes a staged route and restarts the chain from it', () => {
+    const state = createState()
+    advance(state, chain, primary)
+    state.lastWritten = { provider: 'b1', model: 'm1' }
+    adoptIfChanged(state, { provider: 'picked', model: 'x' })
+    promotePending(state)
     expect(state.primary).toEqual({ provider: 'picked', model: 'x' })
     expect(state.cursor).toBe(0)
+    expect(state.pending).toBeUndefined()
   })
 })

@@ -35,7 +35,7 @@ A new product package `@deepseek-ai/dsh-llm-fallback` at `packages/llm/llm-fallb
 
 All four listeners register on the root context at plugin load, keyed by the agent in a `WeakMap`. The three `agent/*` events carry `payload.agent`; `system-prompt/assemble` does not, and reaches its agent through `context.agent`, the field `dsh-agent` merges into `AssembleContext` and sets alongside `scope` in `assembleContextFor`. Root registration is required for correctness, not a convenience: `AgentLoop.setupAndPublish` awaits agent setup before publishing, and ApiProxy installs its own `agent/request` override during that setup, so a listener installed at `agent/created` would register later, be pushed later, and be overridden on the unwind. Cordis waterfalls run outermost-first and append on register, so the earliest registration wins.
 
-Per-agent state is the cursor (`0` = primary, `n` = `backups[n - 1]`), the captured primary selection, the route the plugin last asserted, the last turn that reset the cursor, and the selection snapshotted for the current step.
+Per-agent state is the cursor (`0` = primary, `n` = `backups[n - 1]`), the captured primary selection, the route the plugin last asserted, the route staged by an external change, and the last turn that reset the cursor.
 
 ### Cursor reset
 
@@ -43,11 +43,13 @@ Per-agent state is the cursor (`0` = primary, `n` = `backups[n - 1]`), the captu
 
 ### Request routing
 
-The plugin mirrors the snapshot coupling of `installModelSelection` — snapshot the target at `system-prompt/assemble`, apply it at `agent/request`, and state `provider` and `model` as prompt variables — so a switched model can never disagree with the `{{model}}` the prompt claims. It cannot reuse that helper, whose override is unconditional, because a cursor at `0` is not inert after a failover has occurred.
+The plugin states `provider` and `model` as prompt variables at `system-prompt/assemble` and computes the request route freshly at `agent/request`. It cannot snapshot the assembly's target and reuse it: `AgentLoop.step()` receives one assembly per step and a `{ kind: 'retry' }` action re-enters its request loop without reassembling (`packages/core/agent-loop/src/agent.ts:333-390`), so a snapshot would send a failover retry back to the route that just failed. It also cannot reuse `installModelSelection`, whose override is unconditional, because a cursor at `0` is not inert after a failover has occurred.
 
 At cursor `0` with no failover yet in the session, the plugin returns the delegated config untouched. Once a failover has occurred, cursor `0` must actively re-assert the captured primary, because the ApiProxy selection reads back through `session.requestHeader()`, which by then records the backup; leaving the request untouched would silently convert the per-turn reset into sticky-for-session behavior.
 
-Assertion needs an adopt-external-change rule so it cannot overwrite a deliberate choice made between turns. The plugin compares the delegated route against the route it last asserted: an equal route is the log echoing the plugin's own write, so it asserts the route the cursor currently names — the captured primary at `0`, `backups[n - 1]` above it. A different route means a user selection or settings change moved it, so the plugin adopts that route as the new primary, resets the cursor to `0`, and returns it unchanged.
+Assertion needs an adopt-external-change rule so it cannot overwrite a deliberate choice made between turns. The plugin compares the delegated route against the route it last asserted: an equal route is the log echoing the plugin's own write, so the cursor's route stands. A different route means a user selection or settings change moved it, so the plugin stages that route and the next assembly promotes it to primary, restarting the chain from it.
+
+Surface agreement is therefore conditional rather than absolute. The plugin never initiates a split: a route it chooses to change is staged and promoted at the next assembly, so the prompt and the request always name the same model. A split occurs only where the loop's own retry semantics force one — a failover discovered mid-step reroutes the retry while that step's system prompt is already rendered — and it heals at the next assembly. The prompt-variables Agent Note anticipates exactly this case.
 
 Switching to a backup drops any inherited `reasoningEffort`, whose vocabulary is provider-owned and need not exist on the target; re-asserting the primary restores the effort captured with it.
 
