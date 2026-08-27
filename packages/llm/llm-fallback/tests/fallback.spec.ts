@@ -241,18 +241,25 @@ describe('backup-model failover', () => {
     expect(fallbackEvents(agent)).toHaveLength(1)
   })
 
-  it('prefers a downstream retry over failover', async () => {
-    let retried = false
+  it('prefers a downstream retry over failover, then acts once its budget is exhausted', async () => {
+    const maxDownstreamRetries = 1
+    let downstreamRetries = 0
+    // SERVER is a code both a real retry policy and this plugin's default
+    // failoverCodes own; AUTH (used elsewhere in this file) reaches failover
+    // directly with no same-route retry and could not exercise this path.
     const adapter = new RouteAdapter({
-      'primary/m': [failure('RATE_LIMIT'), textResponse('primary recovered')],
+      'primary/m': [failure('SERVER'), failure('SERVER')],
+      'b1/m1': [textResponse('backup')],
     })
-    // afterFallback lands INNER, so the plugin's own `next()` reaches this
-    // listener — otherwise it short-circuits the waterfall before the plugin
-    // ever runs, and the test would pass with the plugin unmounted.
+    // Shaped like a bounded downstream retry policy (dsh-llm-retry's real
+    // decision surface): retries the same route while its budget remains,
+    // then declines by calling `next()`, letting the plugin's own next()
+    // (which reaches this listener since it's registered afterFallback, INNER)
+    // see no retry and take over.
     context = await harness(adapter, ONE_BACKUP, undefined, (ctx) => {
       ctx.on('agent/request-error', async (_payload, next): Promise<RequestErrorAction> => {
-        if (retried) return next()
-        retried = true
+        if (downstreamRetries >= maxDownstreamRetries) return next()
+        downstreamRetries += 1
         return { kind: 'retry' }
       })
     })
@@ -264,8 +271,20 @@ describe('backup-model failover', () => {
     prompt(agent, 'go')
     await agent.whenIdle()
 
-    expect(adapter.requests.map(r => r.provider)).toEqual(['primary', 'primary'])
-    expect(fallbackEvents(agent)).toHaveLength(0)
+    // The downstream policy retries the same route while its budget remains —
+    // the plugin never runs its own logic during that phase, so the cursor
+    // stays put and no llm/fallback record is appended. Only once the policy
+    // declines (budget exhausted) does the plugin advance the cursor and fail
+    // over to the backup.
+    expect(adapter.requests.map(r => r.provider)).toEqual(['primary', 'primary', 'b1'])
+    expect(fallbackEvents(agent).map(event => event.data)).toEqual([{
+      turn: 1,
+      step: 1,
+      from: { provider: 'primary', model: 'm' },
+      to: { provider: 'b1', model: 'm1' },
+      cursor: 1,
+      failure: { message: 'scripted failure', code: 'SERVER' },
+    }])
   })
 
   it('stops failing over once its listeners are disposed', async () => {
@@ -336,8 +355,7 @@ describe('composition with other route owners', () => {
   })
 
   it('defers an externally replaced route to the following turn', async () => {
-    // oxlint-disable-next-line prefer-const -- oxlint prefer-const false positive; override is reassigned at :359
-    let override: { provider: string; model: string } | undefined
+    let override: { provider: string; model: string } | undefined = undefined
     const adapter = new RouteAdapter({
       'primary/m': [failure('RATE_LIMIT'), textResponse('primary again')],
       'b1/m1': [textResponse('backup')],
