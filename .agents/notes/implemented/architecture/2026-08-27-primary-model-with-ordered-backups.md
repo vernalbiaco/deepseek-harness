@@ -1,6 +1,6 @@
 # Agent Note: Primary model with ordered backup models
 
-Status: proposed
+Status: implemented
 
 English | [中文](2026-08-27-primary-model-with-ordered-backups.zh.md)
 
@@ -10,11 +10,11 @@ A session runs one explicit provider/model route. When that route is rate-limite
 
 `dsh-llm-retry` recovers transient failures of the *same* route and by construction re-requests the same model, so it cannot help where a different model would succeed immediately: `AUTH`, `QUOTA`, `INVALID_CREDENTIAL`, `MISSING_CREDENTIAL`, and `NO_ADAPTER` are outside its default retryable set precisely because repeating them is futile, and an exhausted `RATE_LIMIT` budget ends the same way.
 
-The [bounded LLM request recovery](../../implemented/architecture/2026-06-21-bounded-llm-request-recovery.md) note deferred failover because "no current consumer requires automatic fallback"; a deployment configured with several interchangeable models is that consumer. That note also assigns the obligation for overlapping recovery classifiers to "the plugins that introduce them", which this proposal discharges.
+The [bounded LLM request recovery](../../implemented/architecture/2026-06-21-bounded-llm-request-recovery.md) note deferred failover because "no current consumer requires automatic fallback"; a deployment configured with several interchangeable models is that consumer. That note also assigns the obligation for overlapping recovery classifiers to "the plugins that introduce them", which this package discharges.
 
-## Proposal
+## Decision
 
-A new product package `@deepseek-ai/dsh-llm-fallback` at `packages/llm/llm-fallback/`, sibling to `dsh-llm-retry`, holding an ordered list of backup routes and moving to the next one when the current route fails. It contributes only through documented extension points and changes no existing package.
+The product package `@deepseek-ai/dsh-llm-fallback` at `packages/llm/llm-fallback/`, sibling to `dsh-llm-retry`, holds an ordered list of backup routes and moves to the next one when the current route fails. It contributes only through documented extension points and changes no existing package.
 
 ### Configuration
 
@@ -79,20 +79,12 @@ A separately published `./invariant` companion checks that every `llm/fallback` 
 - **Return to the primary on a cooldown timer** — rejected for now because it makes behavior depend on a clock, which snapshot fixtures must then normalize. The per-turn reset re-probes often enough, at a cost of one failed request per turn while a limit is still active.
 - **Put `failover` on `LlmFailure`** — already rejected by the bounded-recovery note: adapters report facts and deployment policy decides action.
 
-## Acceptance criteria
+## Consequences
 
-- A session whose primary returns `429` past its retry budget completes the turn on `backups[0]`, and the transcript shows `llm/fallback`, a `request/header` change, and the assistant message sourced from the backup.
-- A primary returning `AUTH` fails over on the first failure with no intervening retry.
-- A primary returning `CONTEXT_WINDOW_EXCEEDED` never fails over and reaches `dsh-compaction-basic` unchanged.
-- After a turn served by a backup, the next user message re-requests the primary; mid-turn steering does not.
-- Exhausting the chain surfaces the last failure as a terminal `LlmError`.
-- A model selected through `session.selectModel` between turns becomes the new primary and is not overwritten.
-- A keyless snapshot over a runnable example covers the cascade and the return to the primary, and both SDK expected outputs carry the new event. This requires `dsh-llm-mock-server` to fail a named route with a chosen code and serve a different route successfully; any missing harness support lands in the same change.
+A deployment configured with several interchangeable routes now survives a route-permanent failure — expired credential, exhausted quota, or an unregistered adapter — without operator intervention, and a transient failure still exhausts `dsh-llm-retry`'s budget on the same route before the cursor moves. The durable `llm/fallback` event and the `request/header` change it accompanies make every move reconstructable and let a client report the live route without new wiring.
 
-## Risks
+What it costs: semantic interchangeability across the chain is asserted by configuration, not verified by the plugin — a backup lacking a tool or reasoning option the session needs fails for a different reason once selected. A switch always abandons the failing provider's prefix cache, so the first request on a backup bills full input tokens regardless of why the move happened. Retry, compaction, and failover each hold independent budgets that add rather than share, so a pathological turn can reach retries times chain length requests before ending. Always mode composes only in the documented mount order — `dsh-llm-retry` before `dsh-llm-fallback` — because its unbounded same-route retry never yields to a later listener; the reverse order leaves the chain unreachable.
 
-- **Semantic interchangeability is asserted, not verified.** The plugin cannot prove a backup supports the session's tools or reasoning options; a deployment that lists a weaker model owns that choice. Context-window differences are already safe because compaction re-resolves capacity from the durable route on every check.
-- **A switch invalidates the provider prefix cache**, so the first request on a backup bills full input tokens.
-- **A quiet failover changes which model answered.** The durable event and the header change make it visible, but a client that surfaces neither will show no explanation for a change in model behavior.
-- **Overlapping recovery budgets add.** Retry, compaction, and failover each hold their own limits, so a pathological turn can consume retries times chain length requests before ending.
-- **Always-mode retry never yields**, so a deployment combining it with failover must accept the documented mount order or failover is unreachable.
+## Testing
+
+`packages/llm/llm-fallback/tests/config.spec.ts` covers `resolveConfig()`: the default and configured `failoverCodes`, and rejection of an empty chain, a duplicate route, an empty configured code list, and an unknown key. `tests/state.spec.ts` covers the pure cursor logic — `targetFor()`, `adoptIfChanged()`, `advance()`, `resetForTurn()`, and `promotePending()` — including the captured-primary detach, the external-change staging path, and the turn guard against mid-turn re-probing. `tests/fallback.spec.ts` drives the assembled plugin against a mock LLM route: failover to the first backup after a rate limit, first-failure failover on `AUTH` with no intervening retry, delegating a code the plugin does not own, walking the whole chain to a terminal failure, returning to the primary on the next user turn but not on mid-turn steering, preferring a downstream retry over failover, disposal stopping further failover, and an externally replaced route deferring to the following turn. `tests/invariant.spec.ts` exercises the `./invariant` companion against constructed session histories: well-formed records, a mid-step cascade through several backups, an unrelated request-header change, the complete failure payload, out-of-turn or out-of-step records, a `from`/`to` mismatch against the durable header, cursor sequencing (including a skipped, repeated, non-positive, or fractional cursor), a fresh sequence per turn and per step, and validation on both late plugin registration and new-session creation. `tests/loader-composition.spec.ts` mounts `dsh-llm-retry` and `dsh-llm-fallback` together through the real Cordis loader and proves the composed chain activates and that a malformed entry — empty `backups`, a duplicate route, or an unknown key — fails load. `tests/scaffold.spec.ts` and `tests/types.spec.ts` pin the plugin name and the browser-safe payload's identity with the session event.
