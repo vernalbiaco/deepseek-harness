@@ -1,0 +1,8 @@
+{
+  "steps": [
+    {
+      "op": "prompt",
+      "text": "fail the primary route over to the backup model"
+    }
+  ]
+}

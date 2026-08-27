@@ -24,6 +24,8 @@ const goalScenarioDir = join(goldensDir, 'goal-tools')
 const goalConfigPath = fileURLToPath(new URL('../goal-snapshot.patch.yml', import.meta.url))
 const retryScenarioDir = join(goldensDir, 'provider-retry')
 const retryConfigPath = fileURLToPath(new URL('../retry-snapshot.patch.yml', import.meta.url))
+const fallbackScenarioDir = join(goldensDir, 'provider-fallback')
+const fallbackConfigPath = fileURLToPath(new URL('../fallback-snapshot.patch.yml', import.meta.url))
 const credentialsScenarioDir = join(goldensDir, 'missing-credential')
 const credentialsConfigPath = fileURLToPath(new URL('../credentials-snapshot.patch.yml', import.meta.url))
 // Same keyless composition as the missing-credential scenario: the endpoint is
@@ -453,6 +455,55 @@ describe('headless stream-json snapshots', () => {
           maxRetries: 1,
           delayMs: 1,
           failure: { message: 'snapshot transient failure', code: 'RATE_LIMIT', status: 429 },
+        })
+      },
+    })
+
+    expect(result.stderr).toBe('')
+    const normalized = normalizeHeadlessStream(result.stdout, runCwd)
+    if (refreshing) await writeFile(streamExpected, normalized)
+    await expectHeadlessStream(normalized, streamExpected)
+  }, LOADER_SMOKE_TEST_TIMEOUT_MS)
+
+  it('fails a spent provider route over to a backup model through the one-shot app', async () => {
+    const prompt = await scenarioPrompt(fallbackScenarioDir, 'provider-fallback')
+    const streamExpected = join(fallbackScenarioDir, 'stream-json.expected.jsonl')
+    let runCwd = ''
+    const result = await runLoaderSmoke({
+      label: 'provider fallback headless stream-json snapshot',
+      tempDirPrefix: 'headless-snapshot-provider-fallback-',
+      binScript,
+      libBinScript: binScript,
+      configPath: fallbackConfigPath,
+      binArgs: [fallbackConfigPath, prompt],
+      tsconfigPath,
+      env: {
+        DSH_SNAPSHOT: 'replay',
+        NODE_OPTIONS: [process.env.NODE_OPTIONS, '--disable-warning=ExperimentalWarning'].filter(Boolean).join(' '),
+      },
+      prepare: (cwd) => { runCwd = cwd },
+      inspect: async (cwd) => {
+        const logs = await persistedLogs(cwd)
+        expect(logs).toHaveLength(1)
+        const records = parseJsonl(logs[0]?.content ?? '')
+        // The same-route budget must be spent before the cursor moves, so the
+        // retry record is as load-bearing here as the failover record.
+        const retries = records.filter(record => record.type === 'llm/retry')
+        expect(retries).toHaveLength(1)
+        expect(retries[0]?.data).toMatchObject({
+          provider: 'deepseek-official',
+          retry: 1,
+          maxRetries: 1,
+        })
+        const failovers = records.filter(record => record.type === 'llm/fallback')
+        expect(failovers).toHaveLength(1)
+        expect(failovers[0]?.data).toMatchObject({
+          turn: 1,
+          step: 1,
+          from: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
+          to: { provider: 'deepseek-backup', model: 'deepseek-v4-pro' },
+          cursor: 1,
+          failure: { message: 'snapshot route exhausted', code: 'RATE_LIMIT', status: 429 },
         })
       },
     })
