@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-Function plugin that fails a session over to an ordered list of backup provider/model routes when the current route's request fails with a configured code. It owns no route of its own: the primary is whatever route the session already resolves through model selection, so a deployment default and a user pick both stay authoritative, and the plugin only moves the cursor forward from there.
+Function plugin that fails a session over to an ordered list of backup provider/model routes when the current route's request fails with a configured code. It owns no route of its own: the primary is whatever route the session already resolves through model selection, so a deployment default and a user pick both stay authoritative, and the plugin only moves the cursor forward from there. The cursor is not sticky: it returns to the primary at the start of the next user turn, unconditionally re-probing the primary even while it is still failing, regardless of the step, the request, or elapsed time; mid-turn steering does not trigger this reset, so a failover cascade within one open turn is unaffected.
 
 ```yaml
 - name: '@deepseek-ai/dsh-llm-retry'
@@ -38,6 +38,7 @@ A switch abandons the prior provider's prefix cache; the first request on a back
 
 - **Semantic interchangeability is asserted, not verified.** The plugin cannot prove a backup supports the session's tools or reasoning options; a deployment that lists a weaker model owns that choice. Context-window differences are already safe because compaction re-resolves capacity from the durable route on every check.
 - **A switch invalidates the provider prefix cache**, so the first request on a backup bills full input tokens.
+- **The per-turn reset to the primary costs one wasted request per turn while the primary is still failing.** Every new user turn re-probes the primary unconditionally; a primary still past its rate limit or still holding a rejected credential fails that request again, and only then does the cursor re-advance to a working backup, so the failed request and the cache invalidation it triggers repeat every turn for as long as the primary stays down. This is distinct from the one-time cost of switching to a backup above; a cooldown timer was considered and rejected because it makes behavior depend on a clock that snapshot fixtures would then need to normalize.
 - **A quiet failover changes which model answered.** The durable event and the header change make it visible, but a client that surfaces neither will show no explanation for a change in model behavior.
 - **Overlapping recovery budgets add.** Retry, compaction, and failover each hold their own limits, so a pathological turn can consume retries times chain length requests before ending.
 - **Always-mode retry never yields**, so a deployment combining it with failover must accept the documented mount order or failover is unreachable.
