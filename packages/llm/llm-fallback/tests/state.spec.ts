@@ -24,6 +24,15 @@ describe('targetFor()', () => {
     resetForTurn(state, 2)
     expect(targetFor(state, chain)).toEqual({ provider: 'p', model: 'm', reasoningEffort: 'high' })
   })
+
+  it('detaches the primary it returns from the stored state', () => {
+    const state = createState()
+    advance(state, chain, primary)
+    resetForTurn(state, 2)
+    const asserted = targetFor(state, chain)!
+    asserted.provider = 'mutated'
+    expect(state.primary).toEqual(primary)
+  })
 })
 
 describe('adoptIfChanged()', () => {
@@ -46,6 +55,15 @@ describe('adoptIfChanged()', () => {
     expect(state.cursor).toBe(0)
     expect(state.primary).toEqual({ provider: 'picked', model: 'x' })
     expect(state.lastWritten).toBeUndefined()
+    expect(state.assembled).toBeUndefined()
+  })
+
+  it('clears a snapshotted target when it adopts', () => {
+    const state = createState()
+    advance(state, chain, primary)
+    state.lastWritten = { provider: 'b1', model: 'm1' }
+    state.assembled = { provider: 'b1', model: 'm1' }
+    adoptIfChanged(state, { provider: 'picked', model: 'x' })
     expect(state.assembled).toBeUndefined()
   })
 })
@@ -80,6 +98,13 @@ describe('advance()', () => {
     advance(state, chain, { provider: 'b1', model: 'm1' })
     expect(state.primary).toEqual({ provider: 'p', model: 'm', reasoningEffort: 'high' })
   })
+
+  it('detaches the route it returns from the configured chain', () => {
+    const state = createState()
+    const moved = advance(state, chain, primary)!
+    moved.provider = 'mutated'
+    expect(chain.backups[0]).toEqual({ provider: 'b1', model: 'm1' })
+  })
 })
 
 describe('resetForTurn()', () => {
@@ -96,5 +121,26 @@ describe('resetForTurn()', () => {
     advance(state, chain, primary)
     resetForTurn(state, 2)
     expect(state.cursor).toBe(1)
+  })
+})
+
+describe('reset then adopt', () => {
+  it('re-asserts the primary when the host echoes the logged backup', () => {
+    const state = createState()
+    advance(state, chain, primary)
+    state.lastWritten = { provider: 'b1', model: 'm1' }
+    resetForTurn(state, 2)
+    expect(adoptIfChanged(state, { provider: 'b1', model: 'm1' })).toBe(false)
+    expect(targetFor(state, chain)).toEqual(primary)
+  })
+
+  it('adopts a pick made between turns over the stale written route', () => {
+    const state = createState()
+    advance(state, chain, primary)
+    state.lastWritten = { provider: 'b1', model: 'm1' }
+    resetForTurn(state, 2)
+    expect(adoptIfChanged(state, { provider: 'picked', model: 'x' })).toBe(true)
+    expect(state.primary).toEqual({ provider: 'picked', model: 'x' })
+    expect(state.cursor).toBe(0)
   })
 })

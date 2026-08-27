@@ -80,7 +80,8 @@ export function advance(
   if (state.cursor === 0) state.primary = { ...failed }
   if (state.cursor >= chain.backups.length) return undefined
   state.cursor += 1
-  return chain.backups[state.cursor - 1]
+  const backup = chain.backups[state.cursor - 1]
+  return backup === undefined ? undefined : { ...backup }
 }
 
 /**
@@ -98,7 +99,7 @@ export function targetFor(
   state: FallbackState,
   chain: ResolvedFallbackConfig,
 ): SelectedRoute | undefined {
-  if (state.cursor === 0) return state.primary
+  if (state.cursor === 0) return state.primary === undefined ? undefined : { ...state.primary }
   const backup = chain.backups[state.cursor - 1]
   return backup === undefined ? undefined : { ...backup }
 }
