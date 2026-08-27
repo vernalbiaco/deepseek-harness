@@ -8,7 +8,7 @@ import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import AgentRegistry, { installModelSelection } from '@deepseek-ai/dsh-agent'
-import type { Agent, ModelSelectionRef, RequestErrorAction } from '@deepseek-ai/dsh-agent'
+import type { Agent, ModelSelection, ModelSelectionRef, RequestErrorAction } from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import * as fallback from '../src/index.ts'
 import type { Config } from '../src/config.ts'
@@ -362,6 +362,35 @@ describe('composition with other route owners', () => {
     })
   }
 
+  // ApiProxy's `selectionFor` (packages/host/apiproxy/src/api-proxy.ts:1099-1123)
+  // resolves the selection on every read instead of seeding it once: a pick made
+  // in this process, else the session's own latest `request/header`, else the
+  // deployment default. It is the product's Web and desktop route owner, and the
+  // only owner shape whose model picker reports a backup as the live route.
+  function headerReadingSelection(agent: Agent, deploymentDefault: ModelSelection): ModelSelectionRef {
+    let picked: ModelSelection | undefined
+    const selection: ModelSelectionRef = {
+      get current(): ModelSelection {
+        if (picked !== undefined) return picked
+        const logged = agent.session.requestHeader()?.config
+        if (logged === undefined) return deploymentDefault
+        return {
+          provider: logged.provider,
+          model: logged.model,
+          ...logged.reasoningEffort === undefined
+            ? {}
+            : { reasoningEffort: logged.reasoningEffort },
+        }
+      },
+      set current(next: ModelSelection) {
+        picked = next
+      },
+      assembled: undefined,
+    }
+    installModelSelection(agent.ctx, selection)
+    return selection
+  }
+
   it('keeps the cursor on the backup while a standing selection re-asserts the primary', async () => {
     const adapter = new RouteAdapter({
       'primary/m': [failure('RATE_LIMIT')],
@@ -394,7 +423,7 @@ describe('composition with other route owners', () => {
     expect(fallbackEvents(agent)).toHaveLength(1)
   })
 
-  it('adopts an explicit pick of the route the cursor is already serving', async () => {
+  it('never adopts a pick naming a route already in the chain', async () => {
     const adapter = new RouteAdapter({
       'primary/m': [failure('RATE_LIMIT')],
       'b1/m1': [textResponse('backup')],
@@ -404,11 +433,7 @@ describe('composition with other route owners', () => {
       provider: 'primary',
       model: 'm',
     })
-    const selected: ModelSelectionRef = {
-      current: { provider: 'primary', model: 'm' },
-      assembled: undefined,
-    }
-    installModelSelection(agent.ctx, selected)
+    const selected = headerReadingSelection(agent, { provider: 'primary', model: 'm' })
 
     prompt(agent, 'first')
     await agent.whenIdle()
@@ -419,16 +444,104 @@ describe('composition with other route owners', () => {
     await agent.whenIdle()
     prompt(agent, 'third')
     await agent.whenIdle()
-    prompt(agent, 'fourth')
+
+    // A chain route is what this plugin writes itself, so the delegation
+    // carrying this pick is identical to the one the same session produces with
+    // no pick at all. The pick is therefore never adopted: the cursor keeps
+    // serving the backup and every turn keeps re-probing the primary.
+    expect(adapter.requests.map(r => `${r.provider}/${r.model}`))
+      .toEqual(['primary/m', 'b1/m1', 'primary/m', 'b1/m1', 'primary/m', 'b1/m1'])
+    expect(fallbackEvents(agent)).toHaveLength(3)
+  })
+
+  it('never adopts a pick naming a backup the cursor has not reached', async () => {
+    const adapter = new RouteAdapter({
+      'primary/m': [failure('RATE_LIMIT')],
+      'b1/m1': [textResponse('backup')],
+    })
+    // `b2/m2` is configured but scripted on no route, so a request reaching it
+    // would fail the test rather than pass silently.
+    ;({ ctx: context } = await harness(adapter, TWO_BACKUPS))
+    const agent = context.agentLoop.create(SessionId('failover-pick-unreached-backup'), {
+      provider: 'primary',
+      model: 'm',
+    })
+    const selected = headerReadingSelection(agent, { provider: 'primary', model: 'm' })
+
+    prompt(agent, 'first')
+    await agent.whenIdle()
+    selected.current = { provider: 'b2', model: 'm2' }
+    prompt(agent, 'second')
+    await agent.whenIdle()
+    prompt(agent, 'third')
     await agent.whenIdle()
 
-    // The pick is recognized one request after it first appears, because that
-    // first delegation is this plugin's own write echoed back. Turn 2 still
-    // re-probes the primary, and from turn 3 the picked route is the primary
-    // the chain restarts from, so the failing route is never requested again.
+    // The second backup is a chain route too, so the rule suppresses this pick
+    // for the same reason it suppresses a pick of the served backup: the picker
+    // reports `b2/m2` while `b1/m1` keeps answering.
     expect(adapter.requests.map(r => `${r.provider}/${r.model}`))
-      .toEqual(['primary/m', 'b1/m1', 'primary/m', 'b1/m1', 'b1/m1', 'b1/m1'])
+      .toEqual(['primary/m', 'b1/m1', 'primary/m', 'b1/m1', 'primary/m', 'b1/m1'])
+    expect(fallbackEvents(agent)).toHaveLength(3)
+  })
+
+  it('restarts the chain from a pick naming a route outside it', async () => {
+    const adapter = new RouteAdapter({
+      'primary/m': [failure('RATE_LIMIT')],
+      'b1/m1': [textResponse('backup')],
+      'b2/m2': [textResponse('picked')],
+    })
+    ;({ ctx: context } = await harness(adapter, ONE_BACKUP))
+    const agent = context.agentLoop.create(SessionId('failover-pick-outside-chain'), {
+      provider: 'primary',
+      model: 'm',
+    })
+    const selected = headerReadingSelection(agent, { provider: 'primary', model: 'm' })
+
+    prompt(agent, 'first')
+    await agent.whenIdle()
+    // `b2/m2` is on no chain this plugin holds, so no write of its own can
+    // produce it and the delegation naming it is a choice and nothing else.
+    selected.current = { provider: 'b2', model: 'm2' }
+    prompt(agent, 'second')
+    await agent.whenIdle()
+    prompt(agent, 'third')
+    await agent.whenIdle()
+
+    // Turn 2 still runs on the re-asserted primary and its failover backup: the
+    // pick is staged at the request that carries it and promoted at the next
+    // assembly. From turn 3 the picked route is the primary the chain restarts
+    // from, so the failing route is never requested again.
+    expect(adapter.requests.map(r => `${r.provider}/${r.model}`))
+      .toEqual(['primary/m', 'b1/m1', 'primary/m', 'b1/m1', 'b2/m2'])
     expect(fallbackEvents(agent)).toHaveLength(2)
+  })
+
+  it('re-probes the primary every turn under a route owner that reads the header', async () => {
+    const adapter = new RouteAdapter({
+      'primary/m': [failure('RATE_LIMIT')],
+      'b1/m1': [textResponse('backup')],
+    })
+    ;({ ctx: context } = await harness(adapter, ONE_BACKUP))
+    const agent = context.agentLoop.create(SessionId('failover-header-reading-owner'), {
+      provider: 'primary',
+      model: 'm',
+    })
+    headerReadingSelection(agent, { provider: 'primary', model: 'm' })
+
+    for (const text of ['first', 'second', 'third', 'fourth']) {
+      prompt(agent, text)
+      await agent.whenIdle()
+    }
+
+    // `installModelSelection` captures this owner's selection once per assembly
+    // and replays it on the step's failover retry, so both requests of a failing
+    // turn delegate the header as it stood at that assembly, with nobody having
+    // picked anything. Adopting either would make the backup the new primary and
+    // end the per-turn re-probe for the life of the agent.
+    expect(adapter.requests.map(r => `${r.provider}/${r.model}`)).toEqual([
+      'primary/m', 'b1/m1', 'primary/m', 'b1/m1', 'primary/m', 'b1/m1', 'primary/m', 'b1/m1',
+    ])
+    expect(fallbackEvents(agent)).toHaveLength(4)
   })
 
   it('holds the cursor across turns while a standing selection re-asserts a failing primary', async () => {
@@ -564,7 +677,9 @@ describe('composition with other route owners', () => {
       'b1/m1': [textResponse('backup')],
       'b2/m2': [textResponse('picked')],
     })
-    ;({ ctx: context } = await harness(adapter, TWO_BACKUPS, undefined, (ctx) => {
+    // The chain holds `b1/m1` alone, so the replacement route is on no chain
+    // this plugin writes from and its delegation can only be an external choice.
+    ;({ ctx: context } = await harness(adapter, ONE_BACKUP, undefined, (ctx) => {
       ctx.on('agent/request', async (_payload, next) => {
         const resolved = await next()
         return override === undefined ? resolved : { ...resolved, ...override }

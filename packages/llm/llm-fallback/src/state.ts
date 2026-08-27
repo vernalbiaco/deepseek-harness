@@ -25,13 +25,6 @@ export interface FallbackState {
   primary: SelectedRoute | undefined
   /** Route adopted from outside this plugin, applied at the next assembly. */
   pending: SelectedRoute | undefined
-  /** Route this plugin most recently applied, used to detect an external change. */
-  lastWritten: FallbackRoute | undefined
-  /**
-   * Route the previous delegation produced, excluding a delegation that merely
-   * echoed `lastWritten` back, used to tell a change from a re-assertion.
-   */
-  lastDelegated: FallbackRoute | undefined
   /** Turn that last reset the cursor, so mid-turn steering cannot reset again. */
   lastResetTurn: number | undefined
 }
@@ -45,8 +38,6 @@ export function createState(): FallbackState {
     cursor: 0,
     primary: undefined,
     pending: undefined,
-    lastWritten: undefined,
-    lastDelegated: undefined,
     lastResetTurn: undefined,
   }
 }
@@ -123,38 +114,41 @@ export function targetFor(
 }
 
 /**
- * Stage a route changed outside this plugin, to take effect at the next assembly.
- * A route selection is an external change only when the delegated route differs
- * from both this plugin's last write and the previous delegation. Each signal
- * suppresses a distinct false positive, and neither suppresses the other's:
- * without a route owner the delegation is the durable header read back, which
- * moves to the backup once the failover's own write lands in the log; under a
- * route owner that re-asserts a standing selection on every request
- * (`installModelSelection`), the delegation names that selection on every step
- * and so permanently differs from a backup this plugin wrote.
+ * Stage a route chosen outside this plugin, to take effect at the next assembly.
+ * A delegated route is an external choice only when it names no route of the
+ * resolved chain, neither the captured primary nor any configured backup. Every
+ * route this plugin writes is a chain route, and a delegation can be that write
+ * read back: with no route owner mounted the delegation is the durable header,
+ * and `installModelSelection` replays the selection captured when the step
+ * assembled, which under an owner that reads the header is the same write one
+ * step behind. A delegation naming a chain route is therefore consistent with no
+ * choice at all, and a route outside the chain can be nothing else.
  *
- * A delegation equal to the last write is that write echoed back and carries no
- * external opinion, so it does not become the baseline the next call compares
- * against. Recording it would let the previous-delegation signal suppress the
- * same route again once this plugin's own write moved elsewhere, discarding a
- * standing pick of the route the cursor is serving for the life of the agent
- * rather than adopting it on the request after the pick first appears.
+ * A pick naming a chain route is consequently never adopted; `README.md` states
+ * what that costs.
+ *
+ * Before the first failover the plugin holds no primary and overrides no
+ * request, so a change of selection reaches the provider on its own and needs no
+ * staging.
  *
  * Staging rather than applying keeps the prompt and the request naming the same
  * route for this step: the loop renders one system prompt per step, so a route
  * change this plugin chooses to make must wait for the next assembly.
  *
  * @param state - the agent's failover state.
+ * @param chain - the resolved backup chain.
  * @param delegated - the route the rest of the `agent/request` waterfall produced.
  * @returns whether the delegated route was staged.
  */
-export function adoptIfChanged(state: FallbackState, delegated: FallbackRoute): boolean {
-  const lastWritten = state.lastWritten
-  if (lastWritten !== undefined && sameRoute(delegated, lastWritten)) return false
-  const previous = state.lastDelegated
-  state.lastDelegated = { provider: delegated.provider, model: delegated.model }
-  if (lastWritten === undefined) return false
-  if (previous !== undefined && sameRoute(delegated, previous)) return false
+export function adoptIfChanged(
+  state: FallbackState,
+  chain: ResolvedFallbackConfig,
+  delegated: FallbackRoute,
+): boolean {
+  const primary = state.primary
+  if (primary === undefined) return false
+  if (sameRoute(delegated, primary)) return false
+  if (chain.backups.some(backup => sameRoute(delegated, backup))) return false
   state.pending = { provider: delegated.provider, model: delegated.model }
   return true
 }

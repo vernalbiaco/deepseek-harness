@@ -102,7 +102,7 @@ export function apply(ctx: Context, config: Config): void {
     const state = stateFor(agent)
     // Staged, not applied: a route this plugin chooses to change waits for the
     // next assembly so the prompt and the request never name different models.
-    adoptIfChanged(state, resolved)
+    adoptIfChanged(state, chain, resolved)
     // Applied now rather than staged: the effort is not a prompt variable, so
     // taking it in this step splits no surface, and staging it would restart
     // the chain on a change that names no new route.
@@ -114,7 +114,6 @@ export function apply(ctx: Context, config: Config): void {
     // a failover retry back to the route that just failed.
     const target = targetFor(state, chain)
     if (target === undefined) return resolved
-    state.lastWritten = { provider: target.provider, model: target.model }
     const { reasoningEffort: _inheritedEffort, ...withoutInheritedEffort } = resolved
     return {
       ...withoutInheritedEffort,
