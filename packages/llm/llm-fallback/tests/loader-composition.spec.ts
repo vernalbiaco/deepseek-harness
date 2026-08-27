@@ -68,10 +68,7 @@ const MOUNT_PREFIX: readonly string[] = [
 ]
 
 describe('real Loader composition', () => {
-  // Real-Loader composition resolves workspace packages through tsx at test
-  // time; first resolution after the host/client program split is slow enough
-  // to trip the default 5s budget on cold caches.
-  it('activates dsh-llm-retry and dsh-llm-fallback mounted together with two backups', { timeout: 60_000 }, async () => {
+  it('mounts dsh-llm-retry and dsh-llm-fallback together without a load failure', async () => {
     const loaded = await loadYaml([
       ...MOUNT_PREFIX,
       "- name: '@deepseek-ai/dsh-llm-retry'",
@@ -94,7 +91,7 @@ describe('real Loader composition', () => {
     expect(names).toContain('@deepseek-ai/dsh-llm-fallback')
   })
 
-  it('fails load with an empty backups list', { timeout: 60_000 }, async () => {
+  it('fails load with an empty backups list', async () => {
     await expect(loadYaml([
       ...MOUNT_PREFIX,
       "- name: '@deepseek-ai/dsh-llm-fallback'",
@@ -103,7 +100,7 @@ describe('real Loader composition', () => {
     ])).rejects.toThrow('llm-fallback: backups must list at least one route')
   })
 
-  it('fails load with a duplicate backup route', { timeout: 60_000 }, async () => {
+  it('fails load with a duplicate backup route', async () => {
     await expect(loadYaml([
       ...MOUNT_PREFIX,
       "- name: '@deepseek-ai/dsh-llm-fallback'",
@@ -116,7 +113,7 @@ describe('real Loader composition', () => {
     ])).rejects.toThrow('llm-fallback: duplicate backup route "b1/m1"')
   })
 
-  it('fails load with an unknown config key', { timeout: 60_000 }, async () => {
+  it('fails load with an unknown config key', async () => {
     await expect(loadYaml([
       ...MOUNT_PREFIX,
       "- name: '@deepseek-ai/dsh-llm-fallback'",
