@@ -150,27 +150,32 @@ export function targetFor(
  * is the selection `installModelSelection` snapshotted at this step's assembly,
  * which is that header as of the previous step.
  *
- * Three suppressors cover that reach, and each covers a case the others do not.
+ * Three suppressors stand for that reach, and each covers a case the others do
+ * not.
  *
  * - `state.primary` is what cursor `0` writes, and is what a route owner
  *   re-asserting a standing selection delegates on every step of an open turn.
  * - `backups[0 .. reached - 1]`, for `reached` the larger of this turn's and the
- *   previous turn's high-water cursor, are the backups written within a
- *   delegation's reach. A turn that cascaded leaves its last backup in the
- *   durable header, and the next turn is delegated it while the cursor sits back
- *   at zero.
+ *   previous turn's high-water cursor. A turn that cascaded leaves its last
+ *   backup in the durable header, and the next turn is delegated it while the
+ *   cursor sits back at zero. This mark is per turn rather than per step because
+ *   nothing records when within a turn each backup was written, and a promotion
+ *   taken mid-turn strands the writes that preceded it. It is therefore wider
+ *   than the reach it stands for: a cascade writes several backups in one step
+ *   and only its last is delegable afterwards, yet all of them stay suppressed
+ *   until the marks roll past them.
  * - `state.lastWritten` is the most recent write of all, which a promotion
  *   strands: it moves `state.primary` onto the adopted route and leaves the
  *   route written just before it outside the other two sets.
  *
- * Matching a suppressor is evidence that the delegation is this plugin's own
- * echo. Failing to match one is not evidence of a change: only a route matching
- * none of the three is a choice. A backup the cursor has never reached, and one
- * written further back than either turn mark carries, are both such routes —
- * no delegation source in the session can still name them.
+ * Matching a suppressor is taken as this plugin's own echo. `state.primary` and
+ * `state.lastWritten` are exact: a delegation naming either really is the
+ * request a session with no pick produces. The turn marks trade precision for
+ * the two unknowns above, so a pick they suppress is deferred rather than
+ * undecidable — the marks roll past the route one turn later and it is adopted
+ * then. A route matching none of the three is a choice and stages at once.
  *
- * A pick naming a route still within that reach is consequently never adopted;
- * `README.md` states what that costs.
+ * `README.md` states what a permanently suppressed pick costs.
  *
  * Before the first failover the plugin holds no primary and overrides no
  * request, so a change of selection reaches the provider on its own and needs no
