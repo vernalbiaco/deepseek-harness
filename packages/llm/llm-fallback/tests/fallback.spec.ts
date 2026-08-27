@@ -394,6 +394,73 @@ describe('composition with other route owners', () => {
     expect(fallbackEvents(agent)).toHaveLength(1)
   })
 
+  it('adopts an explicit pick of the route the cursor is already serving', async () => {
+    const adapter = new RouteAdapter({
+      'primary/m': [failure('RATE_LIMIT')],
+      'b1/m1': [textResponse('backup')],
+    })
+    ;({ ctx: context } = await harness(adapter, ONE_BACKUP))
+    const agent = context.agentLoop.create(SessionId('failover-pick-asserted-backup'), {
+      provider: 'primary',
+      model: 'm',
+    })
+    const selected: ModelSelectionRef = {
+      current: { provider: 'primary', model: 'm' },
+      assembled: undefined,
+    }
+    installModelSelection(agent.ctx, selected)
+
+    prompt(agent, 'first')
+    await agent.whenIdle()
+    // The picker reports the backup as the live route once the failover lands,
+    // so picking it is the user staying on the route that answers.
+    selected.current = { provider: 'b1', model: 'm1' }
+    prompt(agent, 'second')
+    await agent.whenIdle()
+    prompt(agent, 'third')
+    await agent.whenIdle()
+    prompt(agent, 'fourth')
+    await agent.whenIdle()
+
+    // The pick is recognized one request after it first appears, because that
+    // first delegation is this plugin's own write echoed back. Turn 2 still
+    // re-probes the primary, and from turn 3 the picked route is the primary
+    // the chain restarts from, so the failing route is never requested again.
+    expect(adapter.requests.map(r => `${r.provider}/${r.model}`))
+      .toEqual(['primary/m', 'b1/m1', 'primary/m', 'b1/m1', 'b1/m1', 'b1/m1'])
+    expect(fallbackEvents(agent)).toHaveLength(2)
+  })
+
+  it('holds the cursor across turns while a standing selection re-asserts a failing primary', async () => {
+    const adapter = new RouteAdapter({
+      'primary/m': [failure('RATE_LIMIT')],
+      'b1/m1': [textResponse('backup')],
+    })
+    ;({ ctx: context } = await harness(adapter, ONE_BACKUP))
+    const agent = context.agentLoop.create(SessionId('failover-standing-selection-turn-two'), {
+      provider: 'primary',
+      model: 'm',
+    })
+    installModelSelection(agent.ctx, {
+      current: { provider: 'primary', model: 'm' },
+      assembled: undefined,
+    })
+
+    prompt(agent, 'first')
+    await agent.whenIdle()
+    // Steering only from here, so turn 1 is one step and turn 2 spans two.
+    steerAcrossSteps(context, agent, adapter, 2)
+    prompt(agent, 'second')
+    await agent.whenIdle()
+
+    // Turn 2 re-probes the primary once, at its start. The standing selection
+    // it re-asserts on every later step must not read as a user pick there
+    // either, so no step of the open turn returns to the failing route.
+    expect(adapter.requests.map(r => `${r.provider}/${r.model}`))
+      .toEqual(['primary/m', 'b1/m1', 'primary/m', 'b1/m1', 'b1/m1'])
+    expect(fallbackEvents(agent)).toHaveLength(2)
+  })
+
   it('cascades from the settled backup when no route owner is mounted', async () => {
     const adapter = new RouteAdapter({
       'primary/m': [failure('RATE_LIMIT')],

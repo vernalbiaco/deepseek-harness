@@ -27,7 +27,10 @@ export interface FallbackState {
   pending: SelectedRoute | undefined
   /** Route this plugin most recently applied, used to detect an external change. */
   lastWritten: FallbackRoute | undefined
-  /** Route the previous delegation produced, used to tell a change from a re-assertion. */
+  /**
+   * Route the previous delegation produced, excluding a delegation that merely
+   * echoed `lastWritten` back, used to tell a change from a re-assertion.
+   */
   lastDelegated: FallbackRoute | undefined
   /** Turn that last reset the cursor, so mid-turn steering cannot reset again. */
   lastResetTurn: number | undefined
@@ -130,6 +133,13 @@ export function targetFor(
  * (`installModelSelection`), the delegation names that selection on every step
  * and so permanently differs from a backup this plugin wrote.
  *
+ * A delegation equal to the last write is that write echoed back and carries no
+ * external opinion, so it does not become the baseline the next call compares
+ * against. Recording it would let the previous-delegation signal suppress the
+ * same route again once this plugin's own write moved elsewhere, discarding a
+ * standing pick of the route the cursor is serving for the life of the agent
+ * rather than adopting it on the request after the pick first appears.
+ *
  * Staging rather than applying keeps the prompt and the request naming the same
  * route for this step: the loop renders one system prompt per step, so a route
  * change this plugin chooses to make must wait for the next assembly.
@@ -139,13 +149,13 @@ export function targetFor(
  * @returns whether the delegated route was staged.
  */
 export function adoptIfChanged(state: FallbackState, delegated: FallbackRoute): boolean {
+  const lastWritten = state.lastWritten
+  if (lastWritten !== undefined && sameRoute(delegated, lastWritten)) return false
   const previous = state.lastDelegated
   state.lastDelegated = { provider: delegated.provider, model: delegated.model }
-  if (state.lastWritten === undefined) return false
-  if (sameRoute(delegated, state.lastWritten)) return false
+  if (lastWritten === undefined) return false
   if (previous !== undefined && sameRoute(delegated, previous)) return false
   state.pending = { provider: delegated.provider, model: delegated.model }
-  state.lastWritten = undefined
   return true
 }
 

@@ -91,7 +91,19 @@ describe('adoptIfChanged()', () => {
     expect(state.pending).toEqual({ provider: 'picked', model: 'x' })
     expect(state.primary).toEqual(primary)
     expect(state.cursor).toBe(1)
-    expect(state.lastWritten).toBeUndefined()
+  })
+
+  it('stages a selection standing on the route it last wrote once that write moves', () => {
+    const state = createState()
+    advance(state, chain, primary)
+    state.lastWritten = { provider: 'b1', model: 'm1' }
+    // The pick names the backup the cursor is serving, so its first delegation
+    // is indistinguishable from the log echoing this plugin's own write.
+    expect(adoptIfChanged(state, { provider: 'b1', model: 'm1' })).toBe(false)
+    resetForTurn(state, 2)
+    state.lastWritten = { provider: 'p', model: 'm' }
+    expect(adoptIfChanged(state, { provider: 'b1', model: 'm1' })).toBe(true)
+    expect(state.pending).toEqual({ provider: 'b1', model: 'm1' })
   })
 })
 
