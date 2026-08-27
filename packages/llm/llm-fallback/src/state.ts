@@ -26,6 +26,12 @@ export interface FallbackState {
   /** Route adopted from outside this plugin, applied at the next assembly. */
   pending: SelectedRoute | undefined
   /**
+   * Route this plugin applied to the most recent request it overrode. A
+   * promotion moves `primary` off that route, which would otherwise leave the
+   * plugin's own last write in no suppression set at all.
+   */
+  lastWritten: FallbackRoute | undefined
+  /**
    * Highest cursor this agent has ever held, so `backups[0 .. reached - 1]` are
    * the backups this plugin has written. Never decreases, including across a
    * turn reset or a promotion, because a route written earlier stays in the
@@ -46,6 +52,7 @@ export function createState(): FallbackState {
     cursor: 0,
     primary: undefined,
     pending: undefined,
+    lastWritten: undefined,
     reached: 0,
     lastResetTurn: undefined,
   }
@@ -127,16 +134,32 @@ export function targetFor(
 /**
  * Stage a route chosen outside this plugin, to take effect at the next assembly.
  * A delegated route is an external choice only when it names no route this
- * plugin has written — neither the captured primary nor a backup at or below the
- * cursor's high-water mark. A delegation can be such a write read back: with no
- * route owner mounted it is the durable header, and `installModelSelection`
- * replays the selection captured when the step assembled, which under an owner
- * that reads the header is the same write one step behind. Any other route,
- * including a configured backup the cursor has never reached, can be nothing but
- * a choice, because nothing in the session has ever requested it.
+ * plugin has written. A delegation can be such a write read back: with no route
+ * owner mounted it is the durable header, and `installModelSelection` replays
+ * the selection captured when the step assembled, which under an owner that
+ * reads the header is the same write one step behind.
  *
- * A pick naming the captured primary or an already-written backup is
- * consequently never adopted; `README.md` states what that costs.
+ * Three suppressors cover the routes written, and each covers a case the others
+ * do not.
+ *
+ * - `state.primary` is what cursor `0` writes, and is what a route owner
+ *   re-asserting a standing selection delegates on every step of an open turn.
+ * - `backups[0 .. reached - 1]` are the backups the cursor has written. A turn
+ *   that cascaded leaves the last of them in the durable header, so a later turn
+ *   is delegated it while the cursor sits back at zero.
+ * - `state.lastWritten` is the most recent write of all. A promotion moves
+ *   `state.primary` onto the adopted route, which leaves the route written just
+ *   before it outside the other two sets; without this suppressor the delegation
+ *   still naming it stages, the next assembly promotes it back, and the agent
+ *   alternates between the two routes for the rest of its life.
+ *
+ * Matching a suppressor is evidence of an echo. Failing to match one is not
+ * evidence of a change: only a route matching none of the three is a choice.
+ * Any other route, including a configured backup the cursor has never reached,
+ * can be nothing but a choice, because nothing in the session has requested it.
+ *
+ * A pick naming a written route is consequently never adopted; `README.md`
+ * states what that costs.
  *
  * Before the first failover the plugin holds no primary and overrides no
  * request, so a change of selection reaches the provider on its own and needs no
@@ -159,6 +182,8 @@ export function adoptIfChanged(
   const primary = state.primary
   if (primary === undefined) return false
   if (sameRoute(delegated, primary)) return false
+  const lastWritten = state.lastWritten
+  if (lastWritten !== undefined && sameRoute(delegated, lastWritten)) return false
   const written = chain.backups.slice(0, state.reached)
   if (written.some(backup => sameRoute(delegated, backup))) return false
   state.pending = { provider: delegated.provider, model: delegated.model }

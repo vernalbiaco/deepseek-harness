@@ -114,6 +114,7 @@ export function apply(ctx: Context, config: Config): void {
     // a failover retry back to the route that just failed.
     const target = targetFor(state, chain)
     if (target === undefined) return resolved
+    state.lastWritten = { provider: target.provider, model: target.model }
     const { reasoningEffort: _inheritedEffort, ...withoutInheritedEffort } = resolved
     return {
       ...withoutInheritedEffort,

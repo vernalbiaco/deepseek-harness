@@ -630,6 +630,48 @@ describe('composition with other route owners', () => {
     expect(fallbackEvents(agent).map(event => event.data.cursor)).toEqual([1, 2])
   })
 
+  it('settles on the adopted route after a one-shot external route change', async () => {
+    let override: { provider: string; model: string } | undefined = undefined
+    const adapter = new RouteAdapter({
+      'primary/m': [failure('RATE_LIMIT'), textResponse('primary recovered')],
+      'b1/m1': [textResponse('backup')],
+      'b2/m2': [textResponse('picked')],
+    })
+    ;({ ctx: context } = await harness(adapter, TWO_BACKUPS, undefined, (ctx) => {
+      ctx.on('agent/request', async (_payload, next) => {
+        const resolved = await next()
+        if (override === undefined) return resolved
+        const applied = { ...resolved, ...override }
+        // One shot: the route source stops naming its route after this request,
+        // which is what leaves the plugin's own write as the only delegation.
+        override = undefined
+        return applied
+      })
+    }))
+    const agent = context.agentLoop.create(SessionId('failover-one-shot-change'), {
+      provider: 'primary',
+      model: 'm',
+    })
+    headerReadingSelection(agent, { provider: 'primary', model: 'm' })
+
+    prompt(agent, 'first')
+    await agent.whenIdle()
+    override = { provider: 'b2', model: 'm2' }
+    for (const text of ['second', 'third', 'fourth', 'fifth', 'sixth']) {
+      prompt(agent, text)
+      await agent.whenIdle()
+    }
+
+    // Turn 3's promotion moves the captured primary onto `b2/m2`, so the route
+    // written in turn 2 sits outside both the primary and the reached backups.
+    // The delegation still names it, one write behind, and adopting it would
+    // promote it back and alternate the two routes for the life of the agent.
+    expect(adapter.requests.map(r => `${r.provider}/${r.model}`)).toEqual([
+      'primary/m', 'b1/m1', 'primary/m', 'b2/m2', 'b2/m2', 'b2/m2', 'b2/m2',
+    ])
+    expect(fallbackEvents(agent)).toHaveLength(1)
+  })
+
   it('adopts a reasoning effort changed between turns while the cursor holds', async () => {
     const adapter = new RouteAdapter({
       'primary/m': [failure('RATE_LIMIT'), textResponse('primary recovered')],
@@ -838,11 +880,8 @@ describe('boundaries the ordinary loop rarely exercises', () => {
     prompt(agent, 'third')
     await agent.whenIdle()
 
-    // `state.pending` holds a route alone, so promoting it at turn 3's assembly
-    // replaces the captured primary with one carrying no effort.
-    // `refreshPrimaryEffort` runs before `targetFor` on the first request after
-    // that assembly, and `AgentLoop.turn()` puts no request between the two, so
-    // the effort is restored before the promoted route is ever written.
+    // The promoted route carries the session's effort on the first request
+    // after the assembly that promoted it.
     expect(adapter.requests.map(r => `${r.provider}/${r.model}:${r.reasoningEffort}`)).toEqual([
       'primary/m:high', 'b1/m1:undefined', 'primary/m:high', 'b1/m1:undefined', 'b2/m2:high',
     ])

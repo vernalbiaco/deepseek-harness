@@ -77,6 +77,19 @@ describe('adoptIfChanged()', () => {
     expect(state.pending).toBeUndefined()
   })
 
+  it('ignores a delegation naming the route it wrote most recently', () => {
+    const state = createState()
+    advance(state, chain, primary)
+    resetForTurn(state, 2)
+    adoptIfChanged(state, chain, { provider: 'picked', model: 'x' })
+    state.lastWritten = { provider: 'p', model: 'm' }
+    promotePending(state)
+    // The promotion moved the primary onto the adopted route, so the route
+    // written just before it is in neither the primary nor the reached backups.
+    expect(adoptIfChanged(state, chain, { provider: 'p', model: 'm' })).toBe(false)
+    expect(state.pending).toBeUndefined()
+  })
+
   it('stages a model outside the chain behind a provider inside it', () => {
     const state = createState()
     advance(state, chain, primary)
