@@ -37,6 +37,14 @@ export interface FallbackState {
    * Raised only by `advance()`, past its length guard, so it never exceeds
    * `backups.length`. A promotion leaves it alone: the routes written earlier in
    * the open turn can still be delegated back after it.
+   *
+   * Per turn rather than per step because nothing records when within a turn
+   * each backup was written, and that promotion strands the writes preceding it.
+   * With `reachedPreviousTurn` this pair therefore stands for a delegation's
+   * one-step reach rather than measuring it, and covers more: a cascade writes
+   * several backups in one step and only its last stays delegable afterwards,
+   * yet all of them are suppressed until the marks roll past them. The width
+   * costs one turn of latency and no pick.
    */
   reachedThisTurn: number
   /**
@@ -158,22 +166,18 @@ export function targetFor(
  * - `backups[0 .. reached - 1]`, for `reached` the larger of this turn's and the
  *   previous turn's high-water cursor. A turn that cascaded leaves its last
  *   backup in the durable header, and the next turn is delegated it while the
- *   cursor sits back at zero. This mark is per turn rather than per step because
- *   nothing records when within a turn each backup was written, and a promotion
- *   taken mid-turn strands the writes that preceded it. It is therefore wider
- *   than the reach it stands for: a cascade writes several backups in one step
- *   and only its last is delegable afterwards, yet all of them stay suppressed
- *   until the marks roll past them.
+ *   cursor sits back at zero. These two marks stand for a delegation's reach
+ *   rather than measuring it, and are wider than it; `FallbackState` records why.
  * - `state.lastWritten` is the most recent write of all, which a promotion
  *   strands: it moves `state.primary` onto the adopted route and leaves the
  *   route written just before it outside the other two sets.
  *
  * Matching a suppressor is taken as this plugin's own echo. `state.primary` and
  * `state.lastWritten` are exact: a delegation naming either really is the
- * request a session with no pick produces. The turn marks trade precision for
- * the two unknowns above, so a pick they suppress is deferred rather than
- * undecidable — the marks roll past the route one turn later and it is adopted
- * then. A route matching none of the three is a choice and stages at once.
+ * request a session with no pick produces. The turn marks are wider, so a pick
+ * they suppress is deferred rather than undecidable: the marks roll past the
+ * route a turn later and it is adopted then. A route matching none of the three
+ * is a choice and stages at once.
  *
  * `README.md` states what a permanently suppressed pick costs.
  *
