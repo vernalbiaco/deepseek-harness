@@ -48,6 +48,10 @@ export function createState(): FallbackState {
   }
 }
 
+// Route identity only, by design: `provider`/`model` decide where the cursor
+// points, and the effort riding on a selection has its own path through
+// refreshPrimaryEffort. Comparing the effort here would let an effort change
+// restart the chain and pull an open turn back to a route that just failed.
 function sameRoute(left: FallbackRoute, right: FallbackRoute): boolean {
   return left.provider === right.provider && left.model === right.model
 }
@@ -143,6 +147,29 @@ export function adoptIfChanged(state: FallbackState, delegated: FallbackRoute): 
   state.pending = { provider: delegated.provider, model: delegated.model }
   state.lastWritten = undefined
   return true
+}
+
+/**
+ * Refresh the effort captured with the primary from a delegation naming that route.
+ * The effort is captured with the failing route so a later re-assertion can restore
+ * it: after a failover the durable header records the backup, which carries no
+ * effort, so the delegated config alone cannot supply it. That capture must not
+ * outlive the selection it came from — a delegation that still names the primary
+ * route carries the session's current effort, including its absence when the
+ * selection cleared it, and is authoritative over the captured value.
+ *
+ * The cursor is untouched: an effort change is not a route change and must not
+ * restart the chain.
+ *
+ * @param state - the agent's failover state.
+ * @param delegated - the route the rest of the `agent/request` waterfall produced.
+ */
+export function refreshPrimaryEffort(state: FallbackState, delegated: SelectedRoute): void {
+  const primary = state.primary
+  if (primary === undefined) return
+  if (primary.provider !== delegated.provider || primary.model !== delegated.model) return
+  if (delegated.reasoningEffort === undefined) delete primary.reasoningEffort
+  else primary.reasoningEffort = delegated.reasoningEffort
 }
 
 /**

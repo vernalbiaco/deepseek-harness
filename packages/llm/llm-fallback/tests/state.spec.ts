@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { resolveConfig } from '../src/config.ts'
-import { adoptIfChanged, advance, createState, promotePending, resetForTurn, targetFor } from '../src/state.ts'
+import { adoptIfChanged, advance, createState, promotePending, refreshPrimaryEffort, resetForTurn, targetFor } from '../src/state.ts'
 
 const chain = resolveConfig({
   backups: [{ provider: 'b1', model: 'm1' }, { provider: 'b2', model: 'm2' }],
@@ -199,5 +199,42 @@ describe('promotePending()', () => {
     expect(state.primary).toEqual({ provider: 'picked', model: 'x' })
     expect(state.cursor).toBe(0)
     expect(state.pending).toBeUndefined()
+  })
+})
+
+describe('refreshPrimaryEffort()', () => {
+  it('leaves the state alone before a failover captured a primary', () => {
+    const state = createState()
+    refreshPrimaryEffort(state, { ...primary, reasoningEffort: 'high' })
+    expect(state.primary).toBeUndefined()
+  })
+
+  it('ignores a delegation differing in provider alone', () => {
+    const state = createState()
+    advance(state, chain, { ...primary, reasoningEffort: 'low' })
+    refreshPrimaryEffort(state, { provider: 'other', model: primary.model, reasoningEffort: 'high' })
+    expect(state.primary).toEqual({ ...primary, reasoningEffort: 'low' })
+  })
+
+  it('ignores a delegation differing in model alone', () => {
+    const state = createState()
+    advance(state, chain, { ...primary, reasoningEffort: 'low' })
+    refreshPrimaryEffort(state, { provider: primary.provider, model: 'other', reasoningEffort: 'high' })
+    expect(state.primary).toEqual({ ...primary, reasoningEffort: 'low' })
+  })
+
+  it('takes an effort changed on the primary route without moving the cursor', () => {
+    const state = createState()
+    advance(state, chain, { ...primary, reasoningEffort: 'low' })
+    refreshPrimaryEffort(state, { ...primary, reasoningEffort: 'high' })
+    expect(state.primary).toEqual({ ...primary, reasoningEffort: 'high' })
+    expect(state.cursor).toBe(1)
+  })
+
+  it('clears the captured effort when the delegation carries none', () => {
+    const state = createState()
+    advance(state, chain, { ...primary, reasoningEffort: 'low' })
+    refreshPrimaryEffort(state, primary)
+    expect(state.primary).toEqual(primary)
   })
 })

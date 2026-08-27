@@ -57,7 +57,9 @@ Only a route differing from both signals is a user selection or settings change;
 
 Surface agreement is therefore conditional rather than absolute. The plugin never initiates a split: a route it chooses to change is staged and promoted at the next assembly, so the prompt and the request always name the same model. A split occurs only where the loop's own retry semantics force one — a failover discovered mid-step reroutes the retry while that step's system prompt is already rendered — and it heals at the next assembly. The prompt-variables Agent Note anticipates exactly this case.
 
-Switching to a backup drops any inherited `reasoningEffort`, whose vocabulary is provider-owned and need not exist on the target; re-asserting the primary restores the effort captured with it.
+Switching to a backup drops any inherited `reasoningEffort`, whose vocabulary is provider-owned and need not exist on the target; re-asserting the primary restores the effort captured with it. The capture is a fallback, not a pin, and it lasts only until the next delegation that names the primary route: while the cursor sits on a backup the durable header records that backup and carries no effort, so nothing else can supply the session's effort, but a delegation still naming the primary route carries the current selection and overwrites the captured value — clearing it when that selection carries none, matching `installModelSelection`'s own rule that an absent effort restores provider-default behavior.
+
+An effort change is applied in the request that observes it rather than staged like a route change. It splits no surface, because the effort is not a prompt variable, and it must not reach `promotePending`: the cursor is keyed on `provider`/`model` alone, so promoting an effort change would restart the chain and pull an open turn back to the route that just failed.
 
 ### Failure handling and composition order
 

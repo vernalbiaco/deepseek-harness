@@ -8,7 +8,7 @@ import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import AgentRegistry, { installModelSelection } from '@deepseek-ai/dsh-agent'
-import type { Agent, RequestErrorAction } from '@deepseek-ai/dsh-agent'
+import type { Agent, ModelSelectionRef, RequestErrorAction } from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import * as fallback from '../src/index.ts'
 import type { Config } from '../src/config.ts'
@@ -45,14 +45,19 @@ class RouteAdapter extends LlmAdapter {
     yield* queue.length === 1 ? queue[0]! : queue.shift()!
   }
 
-  // Declares 'high' so a test can round-trip a captured reasoning effort
-  // without the adapter rejecting it as unsupported.
+  // Declares 'low' and 'high' so a test can round-trip a reasoning effort, and
+  // change one, without the adapter rejecting it as unsupported.
   override resolveModel(provider: string, model: string): Promise<LlmResolvedModelInfo> {
     return Promise.resolve({
       provider,
       id: model,
       name: model,
-      reasoning: { efforts: [{ id: ReasoningEffortId('high'), name: 'High' }] },
+      reasoning: {
+        efforts: [
+          { id: ReasoningEffortId('low'), name: 'Low' },
+          { id: ReasoningEffortId('high'), name: 'High' },
+        ],
+      },
     })
   }
 }
@@ -416,6 +421,73 @@ describe('composition with other route owners', () => {
       { provider: 'b1', model: 'm1' },
     ])
     expect(fallbackEvents(agent).map(event => event.data.cursor)).toEqual([1, 2])
+  })
+
+  it('adopts a reasoning effort changed between turns while the cursor holds', async () => {
+    const adapter = new RouteAdapter({
+      'primary/m': [failure('RATE_LIMIT'), textResponse('primary recovered')],
+      'b1/m1': [textResponse('backup')],
+    })
+    ;({ ctx: context } = await harness(adapter, ONE_BACKUP))
+    const agent = context.agentLoop.create(SessionId('failover-effort-change'), {
+      provider: 'primary',
+      model: 'm',
+    })
+    // `ModelSelectionRef.current` is the entry point's own mutable selection, so
+    // changing it between turns is the real user-pick path rather than a test
+    // artifice. Only the effort moves: the route is the primary throughout.
+    const selected: ModelSelectionRef = {
+      current: { provider: 'primary', model: 'm', reasoningEffort: ReasoningEffortId('low') },
+      assembled: undefined,
+    }
+    installModelSelection(agent.ctx, selected)
+
+    prompt(agent, 'first')
+    await agent.whenIdle()
+    selected.current = { provider: 'primary', model: 'm', reasoningEffort: ReasoningEffortId('high') }
+    prompt(agent, 'second')
+    await agent.whenIdle()
+    prompt(agent, 'third')
+    await agent.whenIdle()
+
+    // The effort captured with the primary at failover time must not outlive the
+    // selection it came from: the re-asserted primary carries the effort the
+    // session now selects, not the one it selected when the failover happened.
+    expect(adapter.requests.map(r => `${r.provider}/${r.model}:${r.reasoningEffort}`))
+      .toEqual(['primary/m:low', 'b1/m1:undefined', 'primary/m:high', 'primary/m:high'])
+    expect(fallbackEvents(agent)).toHaveLength(1)
+  })
+
+  it('does not move the cursor when only the reasoning effort changes mid-turn', async () => {
+    const adapter = new RouteAdapter({
+      'primary/m': [failure('RATE_LIMIT')],
+      'b1/m1': [textResponse('backup')],
+    })
+    ;({ ctx: context } = await harness(adapter, ONE_BACKUP))
+    const agent = context.agentLoop.create(SessionId('failover-effort-midturn'), {
+      provider: 'primary',
+      model: 'm',
+    })
+    const selected: ModelSelectionRef = {
+      current: { provider: 'primary', model: 'm', reasoningEffort: ReasoningEffortId('low') },
+      assembled: undefined,
+    }
+    installModelSelection(agent.ctx, selected)
+    steerAcrossSteps(context, agent, adapter, 2)
+    context.on('agent/request', async (_payload, next) => {
+      const resolved = await next()
+      selected.current = { provider: 'primary', model: 'm', reasoningEffort: ReasoningEffortId('high') }
+      return resolved
+    })
+
+    prompt(agent, 'go')
+    await agent.whenIdle()
+
+    // An effort change is not a route change: it must not restart the chain, so
+    // no step of the open turn returns to the route that just failed.
+    expect(adapter.requests.map(r => `${r.provider}/${r.model}:${r.reasoningEffort}`))
+      .toEqual(['primary/m:low', 'b1/m1:undefined', 'b1/m1:undefined', 'b1/m1:undefined'])
+    expect(fallbackEvents(agent)).toHaveLength(1)
   })
 
   it('defers an externally replaced route to the following turn', async () => {

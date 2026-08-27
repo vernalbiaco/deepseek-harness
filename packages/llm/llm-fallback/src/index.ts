@@ -18,7 +18,7 @@ import type { Agent, RequestErrorAction } from '@deepseek-ai/dsh-agent'
 import { ReasoningEffortId, type LlmCallConfig } from '@deepseek-ai/dsh-llm'
 import type { AssembleContext, PromptAssembly } from '@deepseek-ai/dsh-system-prompt'
 import { Config, resolveConfig } from './config.ts'
-import { adoptIfChanged, advance, createState, promotePending, resetForTurn, targetFor } from './state.ts'
+import { adoptIfChanged, advance, createState, promotePending, refreshPrimaryEffort, resetForTurn, targetFor } from './state.ts'
 import type { FallbackState, SelectedRoute } from './state.ts'
 
 export type { FallbackRoute, LlmFallbackEventData } from './types.ts'
@@ -103,6 +103,10 @@ export function apply(ctx: Context, config: Config): void {
     // Staged, not applied: a route this plugin chooses to change waits for the
     // next assembly so the prompt and the request never name different models.
     adoptIfChanged(state, resolved)
+    // Applied now rather than staged: the effort is not a prompt variable, so
+    // taking it in this step splits no surface, and staging it would restart
+    // the chain on a change that names no new route.
+    refreshPrimaryEffort(state, resolved)
     // Computed fresh rather than snapshotted at assembly. `AgentLoop.step()`
     // renders one system prompt per step and a `{ kind: 'retry' }` action
     // re-enters its request loop without reassembling
