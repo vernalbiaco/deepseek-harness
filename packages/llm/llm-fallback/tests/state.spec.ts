@@ -61,6 +61,28 @@ describe('adoptIfChanged()', () => {
     expect(state.pending).toEqual({ provider: 'b2', model: 'm1' })
   })
 
+  it('ignores a standing selection re-asserted while the cursor sits on a backup', () => {
+    const state = createState()
+    advance(state, chain, primary)
+    // The route owner asserted the same selection on the previous step, so this
+    // delegation differs from the plugin's write without anything having changed.
+    adoptIfChanged(state, primary)
+    state.lastWritten = { provider: 'b1', model: 'm1' }
+    expect(adoptIfChanged(state, primary)).toBe(false)
+    expect(state.pending).toBeUndefined()
+    expect(state.lastWritten).toEqual({ provider: 'b1', model: 'm1' })
+    expect(state.cursor).toBe(1)
+  })
+
+  it('stages a route differing from both the last write and the last delegation', () => {
+    const state = createState()
+    advance(state, chain, primary)
+    adoptIfChanged(state, primary)
+    state.lastWritten = { provider: 'b1', model: 'm1' }
+    expect(adoptIfChanged(state, { provider: 'picked', model: 'x' })).toBe(true)
+    expect(state.pending).toEqual({ provider: 'picked', model: 'x' })
+  })
+
   it('stages an external route instead of applying it immediately', () => {
     const state = createState()
     advance(state, chain, primary)

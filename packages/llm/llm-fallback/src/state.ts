@@ -27,6 +27,8 @@ export interface FallbackState {
   pending: SelectedRoute | undefined
   /** Route this plugin most recently applied, used to detect an external change. */
   lastWritten: FallbackRoute | undefined
+  /** Route the previous delegation produced, used to tell a change from a re-assertion. */
+  lastDelegated: FallbackRoute | undefined
   /** Turn that last reset the cursor, so mid-turn steering cannot reset again. */
   lastResetTurn: number | undefined
 }
@@ -41,6 +43,7 @@ export function createState(): FallbackState {
     primary: undefined,
     pending: undefined,
     lastWritten: undefined,
+    lastDelegated: undefined,
     lastResetTurn: undefined,
   }
 }
@@ -114,19 +117,29 @@ export function targetFor(
 
 /**
  * Stage a route changed outside this plugin, to take effect at the next assembly.
- * A delegated route equal to this plugin's last write is the durable log echoing
- * that write; anything else is a user selection or settings change. Staging
- * rather than applying keeps the prompt and the request naming the same route
- * for this step: the loop renders one system prompt per step, so a route change
- * this plugin chooses to make must wait for the next assembly.
+ * A route selection is an external change only when the delegated route differs
+ * from both this plugin's last write and the previous delegation. Each signal
+ * suppresses a distinct false positive, and neither suppresses the other's:
+ * without a route owner the delegation is the durable header read back, which
+ * moves to the backup once the failover's own write lands in the log; under a
+ * route owner that re-asserts a standing selection on every request
+ * (`installModelSelection`), the delegation names that selection on every step
+ * and so permanently differs from a backup this plugin wrote.
+ *
+ * Staging rather than applying keeps the prompt and the request naming the same
+ * route for this step: the loop renders one system prompt per step, so a route
+ * change this plugin chooses to make must wait for the next assembly.
  *
  * @param state - the agent's failover state.
  * @param delegated - the route the rest of the `agent/request` waterfall produced.
  * @returns whether the delegated route was staged.
  */
 export function adoptIfChanged(state: FallbackState, delegated: FallbackRoute): boolean {
+  const previous = state.lastDelegated
+  state.lastDelegated = { provider: delegated.provider, model: delegated.model }
   if (state.lastWritten === undefined) return false
   if (sameRoute(delegated, state.lastWritten)) return false
+  if (previous !== undefined && sameRoute(delegated, previous)) return false
   state.pending = { provider: delegated.provider, model: delegated.model }
   state.lastWritten = undefined
   return true

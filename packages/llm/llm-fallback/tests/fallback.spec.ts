@@ -7,7 +7,7 @@ import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
-import AgentRegistry from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { installModelSelection } from '@deepseek-ai/dsh-agent'
 import type { Agent, RequestErrorAction } from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import * as fallback from '../src/index.ts'
@@ -338,6 +338,84 @@ describe('composition with other route owners', () => {
       cursor: 1,
       failure: { message: 'scripted failure', code: 'RATE_LIMIT' },
     }])
+  })
+
+  // Keeps one turn open across `count` further steps by steering once per
+  // request already made, so a test can observe the cursor across a whole turn.
+  function steerAcrossSteps(ctx: Context, agent: Agent, adapter: RouteAdapter, count: number): void {
+    let steers = 0
+    ctx.on('agent/request', async (_payload, next) => {
+      const resolved = await next()
+      if (steers < count && adapter.requests.length >= 1 + steers) {
+        steers += 1
+        agent.steer(createUserMessage({
+          content: [{ type: 'text', text: 'more' }],
+          source: { kind: 'user' },
+        }))
+      }
+      return resolved
+    })
+  }
+
+  it('keeps the cursor on the backup while a standing selection re-asserts the primary', async () => {
+    const adapter = new RouteAdapter({
+      'primary/m': [failure('RATE_LIMIT')],
+      'b1/m1': [textResponse('backup settled')],
+    })
+    ;({ ctx: context } = await harness(adapter, ONE_BACKUP))
+    const agent = context.agentLoop.create(SessionId('failover-standing-selection'), {
+      provider: 'primary',
+      model: 'm',
+    })
+    // dsh-bundle-headless installs exactly this: a selection ref fixed at agent
+    // setup that never re-reads the durable header, so every request in the
+    // session is overridden back to the deployment's primary. The delegated
+    // route therefore always differs from the route this plugin last wrote,
+    // without any user having changed anything.
+    installModelSelection(agent.ctx, {
+      current: { provider: 'primary', model: 'm' },
+      assembled: undefined,
+    })
+    steerAcrossSteps(context, agent, adapter, 2)
+
+    prompt(agent, 'go')
+    await agent.whenIdle()
+
+    // The primary is requested once, at the start of the turn. A standing
+    // selection re-asserted on every step must not read as a user pick, so no
+    // step inside the open turn returns to the route that just failed.
+    expect(adapter.requests.map(r => `${r.provider}/${r.model}`))
+      .toEqual(['primary/m', 'b1/m1', 'b1/m1', 'b1/m1'])
+    expect(fallbackEvents(agent)).toHaveLength(1)
+  })
+
+  it('cascades from the settled backup when no route owner is mounted', async () => {
+    const adapter = new RouteAdapter({
+      'primary/m': [failure('RATE_LIMIT')],
+      'b1/m1': [textResponse('backup'), textResponse('backup again'), failure('RATE_LIMIT')],
+      'b2/m2': [textResponse('second backup')],
+    })
+    // No route owner: the delegated route is the durable header read back, so
+    // it changes once, when the failover's own write lands in the log. Treating
+    // that as an external pick would promote the backup to primary and lose the
+    // chain position, sending the next failure back to the route that failed.
+    ;({ ctx: context } = await harness(adapter, TWO_BACKUPS))
+    const agent = context.agentLoop.create(SessionId('failover-cascade-no-owner'), {
+      provider: 'primary',
+      model: 'm',
+    })
+    steerAcrossSteps(context, agent, adapter, 2)
+
+    prompt(agent, 'go')
+    await agent.whenIdle()
+
+    expect(adapter.requests.map(r => `${r.provider}/${r.model}`))
+      .toEqual(['primary/m', 'b1/m1', 'b1/m1', 'b1/m1', 'b2/m2'])
+    expect(fallbackEvents(agent).map(event => event.data.from)).toEqual([
+      { provider: 'primary', model: 'm' },
+      { provider: 'b1', model: 'm1' },
+    ])
+    expect(fallbackEvents(agent).map(event => event.data.cursor)).toEqual([1, 2])
   })
 
   it('defers an externally replaced route to the following turn', async () => {
