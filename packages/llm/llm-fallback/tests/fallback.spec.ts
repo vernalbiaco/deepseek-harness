@@ -672,6 +672,83 @@ describe('composition with other route owners', () => {
     expect(fallbackEvents(agent)).toHaveLength(1)
   })
 
+  it('adopts a pick of a backup an old cascade wrote once no delegation names it', async () => {
+    const adapter = new RouteAdapter({
+      'primary/m': [failure('RATE_LIMIT'), textResponse('primary recovered')],
+      'b1/m1': [failure('RATE_LIMIT')],
+      'b2/m2': [textResponse('second backup')],
+    })
+    ;({ ctx: context } = await harness(adapter, TWO_BACKUPS))
+    const agent = context.agentLoop.create(SessionId('failover-pick-old-cascade-backup'), {
+      provider: 'primary',
+      model: 'm',
+    })
+    const selected = headerReadingSelection(agent, { provider: 'primary', model: 'm' })
+
+    prompt(agent, 'first')
+    await agent.whenIdle()
+    prompt(agent, 'second')
+    await agent.whenIdle()
+    // Turn 1 cascaded to `b2/m2` and turn 2 ran on the recovered primary, so the
+    // durable header names the primary and an assembly snapshot reads that same
+    // header back. Nothing but this pick can put `b2/m2` on the delegation.
+    selected.current = { provider: 'b2', model: 'm2' }
+    prompt(agent, 'third')
+    await agent.whenIdle()
+    prompt(agent, 'fourth')
+    await agent.whenIdle()
+
+    expect(adapter.requests.map(r => `${r.provider}/${r.model}`))
+      .toEqual(['primary/m', 'b1/m1', 'b2/m2', 'primary/m', 'primary/m', 'b2/m2'])
+    expect(fallbackEvents(agent)).toHaveLength(2)
+  })
+
+  it('keeps serving an adopted route when the open turn already wrote a backup', async () => {
+    const adapter = new RouteAdapter({
+      'primary/m': [failure('RATE_LIMIT')],
+      'b1/m1': [failure('RATE_LIMIT'), textResponse('backup recovered')],
+      'b2/m2': [textResponse('second backup')],
+      'b2/other': [failure('RATE_LIMIT'), textResponse('adopted route')],
+    })
+    ;({ ctx: context } = await harness(adapter, TWO_BACKUPS, undefined, (ctx) => {
+      ctx.on('agent/request', async ({ agent }, next) => {
+        const resolved = await next()
+        // One steer per step from the cascade onwards, so the turn spans three
+        // steps and the promotion lands at the third step's assembly rather
+        // than at a turn boundary.
+        const made = adapter.requests.length
+        if (made === 2 || made === 3) {
+          agent.steer(createUserMessage({
+            content: [{ type: 'text', text: 'more' }],
+            source: { kind: 'user' },
+          }))
+        }
+        // One shot, on the second step's only request.
+        if (made !== 3) return resolved
+        return { ...resolved, provider: 'b2', model: 'other' }
+      })
+    }))
+    const agent = context.agentLoop.create(SessionId('failover-midturn-promotion'), {
+      provider: 'primary',
+      model: 'm',
+    })
+    headerReadingSelection(agent, { provider: 'primary', model: 'm' })
+
+    prompt(agent, 'first')
+    await agent.whenIdle()
+    prompt(agent, 'second')
+    await agent.whenIdle()
+
+    // The third step's promotion moves both the captured primary and the last
+    // write onto `b2/other`, so the turn's own reach is all that still covers
+    // the `b2/m2` its first step wrote. Losing it there stages that stale
+    // backup and promotes it over the adopted route for the following turn.
+    expect(adapter.requests.map(r => `${r.provider}/${r.model}`)).toEqual([
+      'primary/m', 'b1/m1', 'b2/m2', 'b2/m2', 'b2/other', 'b1/m1', 'b2/other',
+    ])
+    expect(fallbackEvents(agent)).toHaveLength(3)
+  })
+
   it('adopts a reasoning effort changed between turns while the cursor holds', async () => {
     const adapter = new RouteAdapter({
       'primary/m': [failure('RATE_LIMIT'), textResponse('primary recovered')],

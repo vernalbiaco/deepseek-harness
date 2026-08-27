@@ -32,13 +32,19 @@ export interface FallbackState {
    */
   lastWritten: FallbackRoute | undefined
   /**
-   * Highest cursor this agent has ever held, so `backups[0 .. reached - 1]` are
-   * the backups this plugin has written. Never decreases, including across a
-   * turn reset or a promotion, because a route written earlier stays in the
-   * durable header history and can still be delegated back. `advance()` raises
-   * it only after its length guard, so it never exceeds `backups.length`.
+   * Highest cursor held since the current turn began, so
+   * `backups[0 .. reachedThisTurn - 1]` are the backups written within it.
+   * Raised only by `advance()`, past its length guard, so it never exceeds
+   * `backups.length`. A promotion leaves it alone: the routes written earlier in
+   * the open turn can still be delegated back after it.
    */
-  reached: number
+  reachedThisTurn: number
+  /**
+   * What `reachedThisTurn` held when the previous turn ended. Carried because a
+   * turn is delegated the header the previous one left, and its own steps can
+   * write before that delegation is examined.
+   */
+  reachedPreviousTurn: number
   /** Turn that last reset the cursor, so mid-turn steering cannot reset again. */
   lastResetTurn: number | undefined
 }
@@ -53,7 +59,8 @@ export function createState(): FallbackState {
     primary: undefined,
     pending: undefined,
     lastWritten: undefined,
-    reached: 0,
+    reachedThisTurn: 0,
+    reachedPreviousTurn: 0,
     lastResetTurn: undefined,
   }
 }
@@ -67,9 +74,10 @@ function sameRoute(left: FallbackRoute, right: FallbackRoute): boolean {
 }
 
 /**
- * Return the cursor to the primary once per turn.
+ * Return the cursor to the primary once per turn, and roll the reach marks.
  * `agent/inbox/claimed` also fires for mid-turn steering, so a repeated turn
- * number must not re-probe a route that just failed inside the open turn.
+ * number must not re-probe a route that just failed inside the open turn, nor
+ * discard the reach the open turn has accumulated.
  *
  * @param state - the agent's failover state.
  * @param turn - the turn that claimed a message.
@@ -78,6 +86,8 @@ export function resetForTurn(state: FallbackState, turn: number): void {
   if (state.lastResetTurn === turn) return
   state.lastResetTurn = turn
   state.cursor = 0
+  state.reachedPreviousTurn = state.reachedThisTurn
+  state.reachedThisTurn = 0
 }
 
 /**
@@ -102,7 +112,7 @@ export function advance(
   // length, so the incremented cursor indexes a route this chain holds.
   // oxlint-disable-next-line typescript/no-non-null-assertion
   const backup = chain.backups[state.cursor - 1]!
-  if (state.cursor > state.reached) state.reached = state.cursor
+  if (state.cursor > state.reachedThisTurn) state.reachedThisTurn = state.cursor
   return { ...backup }
 }
 
@@ -134,32 +144,33 @@ export function targetFor(
 /**
  * Stage a route chosen outside this plugin, to take effect at the next assembly.
  * A delegated route is an external choice only when it names no route this
- * plugin has written. A delegation can be such a write read back: with no route
- * owner mounted it is the durable header, and `installModelSelection` replays
- * the selection captured when the step assembled, which under an owner that
- * reads the header is the same write one step behind.
+ * plugin has written recently enough for a delegation to still carry it. Both
+ * sources reach back one step: with no route owner mounted the delegation is
+ * the durable header, which names the last request, and under a route owner it
+ * is the selection `installModelSelection` snapshotted at this step's assembly,
+ * which is that header as of the previous step.
  *
- * Three suppressors cover the routes written, and each covers a case the others
- * do not.
+ * Three suppressors cover that reach, and each covers a case the others do not.
  *
  * - `state.primary` is what cursor `0` writes, and is what a route owner
  *   re-asserting a standing selection delegates on every step of an open turn.
- * - `backups[0 .. reached - 1]` are the backups the cursor has written. A turn
- *   that cascaded leaves the last of them in the durable header, so a later turn
- *   is delegated it while the cursor sits back at zero.
- * - `state.lastWritten` is the most recent write of all. A promotion moves
- *   `state.primary` onto the adopted route, which leaves the route written just
- *   before it outside the other two sets; without this suppressor the delegation
- *   still naming it stages, the next assembly promotes it back, and the agent
- *   alternates between the two routes for the rest of its life.
+ * - `backups[0 .. reached - 1]`, for `reached` the larger of this turn's and the
+ *   previous turn's high-water cursor, are the backups written within a
+ *   delegation's reach. A turn that cascaded leaves its last backup in the
+ *   durable header, and the next turn is delegated it while the cursor sits back
+ *   at zero.
+ * - `state.lastWritten` is the most recent write of all, which a promotion
+ *   strands: it moves `state.primary` onto the adopted route and leaves the
+ *   route written just before it outside the other two sets.
  *
- * Matching a suppressor is evidence of an echo. Failing to match one is not
- * evidence of a change: only a route matching none of the three is a choice.
- * Any other route, including a configured backup the cursor has never reached,
- * can be nothing but a choice, because nothing in the session has requested it.
+ * Matching a suppressor is evidence that the delegation is this plugin's own
+ * echo. Failing to match one is not evidence of a change: only a route matching
+ * none of the three is a choice. A backup the cursor has never reached, and one
+ * written further back than either turn mark carries, are both such routes —
+ * no delegation source in the session can still name them.
  *
- * A pick naming a written route is consequently never adopted; `README.md`
- * states what that costs.
+ * A pick naming a route still within that reach is consequently never adopted;
+ * `README.md` states what that costs.
  *
  * Before the first failover the plugin holds no primary and overrides no
  * request, so a change of selection reaches the provider on its own and needs no
@@ -184,7 +195,8 @@ export function adoptIfChanged(
   if (sameRoute(delegated, primary)) return false
   const lastWritten = state.lastWritten
   if (lastWritten !== undefined && sameRoute(delegated, lastWritten)) return false
-  const written = chain.backups.slice(0, state.reached)
+  const reached = Math.max(state.reachedThisTurn, state.reachedPreviousTurn)
+  const written = chain.backups.slice(0, reached)
   if (written.some(backup => sameRoute(delegated, backup))) return false
   state.pending = { provider: delegated.provider, model: delegated.model }
   return true

@@ -90,6 +90,32 @@ describe('adoptIfChanged()', () => {
     expect(state.pending).toBeUndefined()
   })
 
+  it('stages a delegation naming a backup no delegation source can still name', () => {
+    const state = createState()
+    advance(state, chain, primary)
+    advance(state, chain, { provider: 'b1', model: 'm1' })
+    resetForTurn(state, 2)
+    resetForTurn(state, 3)
+    // Two turn boundaries after the cascade wrote it, neither the durable
+    // header nor an assembly snapshot reaches back to that backup.
+    expect(adoptIfChanged(state, chain, { provider: 'b2', model: 'm2' })).toBe(true)
+    expect(state.pending).toEqual({ provider: 'b2', model: 'm2' })
+  })
+
+  it('keeps the open turn\'s reach across a promotion', () => {
+    const state = createState()
+    advance(state, chain, primary)
+    advance(state, chain, { provider: 'b1', model: 'm1' })
+    adoptIfChanged(state, chain, { provider: 'picked', model: 'x' })
+    promotePending(state)
+    state.lastWritten = { provider: 'picked', model: 'x' }
+    expect(state.reachedThisTurn).toBe(2)
+    // The promotion moved the primary and the last write onto the adopted
+    // route, so only the turn\'s own reach still covers what it wrote before.
+    expect(adoptIfChanged(state, chain, { provider: 'b2', model: 'm2' })).toBe(false)
+    expect(state.pending).toBeUndefined()
+  })
+
   it('stages a model outside the chain behind a provider inside it', () => {
     const state = createState()
     advance(state, chain, primary)
@@ -162,15 +188,18 @@ describe('advance()', () => {
     expect(state.primary).toEqual(primary)
   })
 
-  it('records how far the cursor has reached and never lowers it', () => {
+  it('records the turn\'s reach and carries it into the turn that follows', () => {
     const state = createState()
     advance(state, chain, primary)
     advance(state, chain, { provider: 'b1', model: 'm1' })
-    expect(state.reached).toBe(2)
+    expect(state.reachedThisTurn).toBe(2)
     resetForTurn(state, 2)
-    advance(state, chain, primary)
-    expect(state.cursor).toBe(1)
-    expect(state.reached).toBe(2)
+    expect(state.reachedThisTurn).toBe(0)
+    expect(state.reachedPreviousTurn).toBe(2)
+    resetForTurn(state, 3)
+    // A turn that wrote no backup carries none into the next, which is what
+    // bounds the mark to the reach a delegation can still name.
+    expect(state.reachedPreviousTurn).toBe(0)
   })
 
   it('detaches the route it returns from the configured chain', () => {
