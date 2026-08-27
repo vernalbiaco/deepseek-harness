@@ -155,5 +155,3 @@ export function apply(ctx: Context, config: Config): void {
     disposeError()
   }, 'llm-fallback: remove failover listeners')
 }
-
-export default apply

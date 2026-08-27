@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
-import { Context } from '@deepseek-ai/cordis'
+import { Context, FiberState } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import Include from '@deepseek-ai/cordis-plugin-include'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
@@ -105,6 +105,18 @@ const MOUNT_PREFIX: readonly string[] = [
   "- name: '@deepseek-ai/dsh-agent'",
 ]
 
+/**
+ * Find one mounted Loader entry by plugin name.
+ * @param loaded - the context returned by {@link loadYaml}.
+ * @param name - the plugin name as written in the composition.
+ * @returns the entry, which must exist.
+ */
+function entryFor(loaded: Context, name: string) {
+  const entry = [...loaded.loader.entries()].find(candidate => candidate.options.name === name)
+  if (entry === undefined) throw new Error(`loader entry "${name}" not mounted`)
+  return entry
+}
+
 describe('real Loader composition', () => {
   it('mounts dsh-llm-retry and dsh-llm-fallback through the real Loader and fails over to the resolved chain', async () => {
     const loaded = await loadYaml([
@@ -127,6 +139,11 @@ describe('real Loader composition', () => {
     expect(unloaded).toEqual([])
     expect(names).toContain('@deepseek-ai/dsh-llm-retry')
     expect(names).toContain('@deepseek-ai/dsh-llm-fallback')
+    // `unloaded` reads `entry.fiber === undefined`, which a fiber left PENDING
+    // on an unsatisfied `inject` does not match. Assert the state directly so
+    // this composition cannot pass with the plugin waiting for `agents`.
+    expect(entryFor(loaded, '@deepseek-ai/dsh-llm-fallback').fiber?.state)
+      .toBe(FiberState.ACTIVE)
 
     // `unloaded`/`names` are Loader bookkeeping: they hold even if `apply()`
     // called `resolveConfig()` and then registered no listeners, silently
@@ -179,6 +196,36 @@ describe('real Loader composition', () => {
       '      - provider: b1',
       '        model: m1',
     ])).rejects.toThrow('llm-fallback: duplicate backup route "b1/m1"')
+  })
+
+  it('fails load with a backups value that is not a list', async () => {
+    await expect(loadYaml([
+      ...MOUNT_PREFIX,
+      "- name: '@deepseek-ai/dsh-llm-fallback'",
+      '  config:',
+      '    backups: notanarray',
+    ])).rejects.toThrow(/\$\.backups expected array but got notanarray/)
+  })
+
+  it('fails load with no config block, naming the missing backups field', async () => {
+    await expect(loadYaml([
+      ...MOUNT_PREFIX,
+      "- name: '@deepseek-ai/dsh-llm-fallback'",
+    ])).rejects.toThrow(/\$\.backups missing required value/)
+  })
+
+  it('waits for the agents service instead of applying without it', async () => {
+    const loaded = await loadYaml([
+      "- name: '@deepseek-ai/dsh-llm'",
+      "- name: '@deepseek-ai/dsh-session'",
+      "- name: '@deepseek-ai/dsh-llm-fallback'",
+      '  config:',
+      '    backups:',
+      '      - provider: b1',
+      '        model: m1',
+    ])
+    expect(entryFor(loaded, '@deepseek-ai/dsh-llm-fallback').fiber?.state)
+      .toBe(FiberState.PENDING)
   })
 
   it('fails load with an unknown config key', async () => {

@@ -40,7 +40,11 @@ export const Config: z<Config> = z.object({
     provider: z.string().required(),
     model: z.string().required(),
   })).required(),
-  failoverCodes: z.array(z.string()),
+  // Schemastery fills an omitted array with `[]`. `resolveConfig` distinguishes
+  // an omitted list (take DEFAULT_FAILOVER_CODES) from an explicitly empty one
+  // (reject: a chain that can never move is a misconfiguration), so the entry
+  // must reach it still absent.
+  failoverCodes: z.array(z.string()).default(undefined as unknown as string[]),
 })
 
 /** Validated chain and code membership used by the plugin at runtime. */

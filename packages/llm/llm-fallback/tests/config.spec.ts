@@ -69,4 +69,18 @@ describe('Config schema', () => {
   it('rejects an entry with no backups list, naming the missing field', () => {
     expect(() => Config({} as never)).toThrow(/\$\.backups missing required value/)
   })
+
+  it('leaves an omitted failoverCodes absent so resolveConfig still defaults it', () => {
+    const normalized = Config({ backups: [{ provider: 'p', model: 'm' }] })
+    expect(normalized.failoverCodes).toBeUndefined()
+    expect([...resolveConfig(normalized).failoverCodes].sort())
+      .toEqual([...DEFAULT_FAILOVER_CODES].sort())
+  })
+
+  it('keeps an explicitly empty failoverCodes empty so resolveConfig still rejects it', () => {
+    const normalized = Config({ backups: [{ provider: 'p', model: 'm' }], failoverCodes: [] })
+    expect(normalized.failoverCodes).toEqual([])
+    expect(() => resolveConfig(normalized))
+      .toThrow('llm-fallback: failoverCodes must list at least one code when present')
+  })
 })
