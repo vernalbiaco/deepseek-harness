@@ -31,6 +31,8 @@ The product package `@deepseek-ai/dsh-llm-fallback` at `packages/llm/llm-fallbac
 
 `failoverCodes` is an optional validated list defaulting to `[RATE_LIMIT, SERVER, TIMEOUT, TRANSPORT, EMPTY_RESPONSE, AUTH, QUOTA, INVALID_CREDENTIAL, MISSING_CREDENTIAL, NO_ADAPTER]`. `code` is an open string taxonomy, so any code outside the list — including `CONTEXT_WINDOW_EXCEEDED`, `INVALID_REQUEST`, `ABORTED`, and adapter-specific codes such as `HTTP_503` — delegates and stays terminal.
 
+Misconfiguration fails at plugin load: an empty `backups` list, a duplicate backup route, an empty `failoverCodes` list when the key is present, and any key outside `backups` and `failoverCodes`. The unknown-key guard exists because schemastery passes unknown keys through instead of rejecting them; without it a typo such as `backup:` or `failOverCodes:` would load cleanly under silently defaulted configuration the operator believes they set, matching the same guard in `dsh-llm-retry`.
+
 ### Registration and per-agent state
 
 All four listeners register on the root context at plugin load, keyed by the agent in a `WeakMap`. The three `agent/*` events carry `payload.agent`; `system-prompt/assemble` does not, and reaches its agent through `context.agent`, the field `dsh-agent` merges into `AssembleContext` and sets alongside `scope` in `assembleContextFor`. Root registration is required for correctness, not a convenience: `AgentLoop.setupAndPublish` awaits agent setup before publishing, and ApiProxy installs its own `agent/request` override during that setup, so a listener installed at `agent/created` would register later, be pushed later, and be overridden on the unwind. Cordis waterfalls run outermost-first and append on register, so the earliest registration wins.
