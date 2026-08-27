@@ -61,6 +61,17 @@ function routeInForce(history: readonly SessionEvent[]): FallbackRoute | undefin
  * `llm/fallback`, so the forward relationship between the two is checked from
  * here, backward, rather than from `llm/fallback` looking ahead for a header
  * that does not exist yet at append time.
+ *
+ * The check goes silent when a record's `to` equals the route that just
+ * failed: `buildRequest` only appends a new `request/header` when the header
+ * actually differs (packages/core/agent-loop/src/agent.ts:483-488), so a
+ * backup that names the session's own current route produces no header and
+ * this forward relationship is never confirmed for that record.
+ * `resolveConfig` (./config.ts) rejects a duplicate route within `backups`,
+ * but not one that duplicates the session's own primary — that route is not
+ * itself a member of `backups` — so `backups: [primary, b1]` against a
+ * session already on `primary` is reachable configuration. The cascade still
+ * terminates by chain exhaustion and the durable log still shows the record.
  */
 function validateHeaderFollowsFallback(
   history: readonly SessionEvent[],
@@ -83,8 +94,14 @@ function validateFallback(
   event: SessionEvent<'llm/fallback'>,
   fail: InvariantFailure,
 ): void {
-  const { turn, step, from, cursor, failure }: LlmFallbackEventData = event.data
+  const { turn, step, from, to, cursor, failure }: LlmFallbackEventData = event.data
   validateFailure(failure, fail)
+  if (typeof to.provider !== 'string' || to.provider.length === 0) {
+    fail('llm/fallback to.provider must be a non-empty string')
+  }
+  if (typeof to.model !== 'string' || to.model.length === 0) {
+    fail('llm/fallback to.model must be a non-empty string')
+  }
 
   const turnBoundary = history.findLast(prior =>
     prior.type === 'turn/start' || prior.type === 'turn/end')
@@ -115,6 +132,13 @@ function validateFallback(
     fail(`llm/fallback from ${from.provider}/${from.model} does not match the failed request route ${loggedRoute.provider}/${loggedRoute.model}`)
   }
 
+  // No durable chain-length bound to check against: `advance()` (./state.ts)
+  // is the sole writer of `cursor` and returns `undefined` once the chain is
+  // exhausted, and `index.ts` never appends `llm/fallback` when that happens,
+  // so a durable record's cursor cannot exceed the configured chain length by
+  // construction. Re-verifying that bound here would mean logging the chain
+  // length on every record solely to re-check what a pure function already
+  // enforces; a positive-safe-integer check is what remains checkable.
   if (!Number.isSafeInteger(cursor) || cursor < 1) {
     fail('llm/fallback cursor must be a positive safe integer')
   }

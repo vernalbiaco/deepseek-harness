@@ -175,6 +175,22 @@ describe('llm-fallback invariants', () => {
     }).toThrow(/does not match the failed request route primary\/m/)
   })
 
+  it('rejects a malformed to route with no later request header to lean on', async () => {
+    const emptyProvider = await setup()
+    const emptyProviderSession = openStep(emptyProvider, 'fallback-invariant-to-provider-empty')
+    expect(() => {
+      emptyProviderSession.append('llm/fallback', { ...move, to: { provider: '', model: 'm1' } })
+    }).toThrow(/to\.provider must be a non-empty string/)
+
+    const wrongModelType = await setup()
+    const wrongModelTypeSession = openStep(wrongModelType, 'fallback-invariant-to-model-type')
+    expect(() => {
+      wrongModelTypeSession.append('llm/fallback', {
+        ...move, to: { provider: 'b1', model: null },
+      } as never)
+    }).toThrow(/to\.model must be a non-empty string/)
+  })
+
   it('accepts successive cursors and rejects a skipped or repeated cursor', async () => {
     const ctx = await setup()
     const skip = openStep(ctx, 'fallback-invariant-cursor-skip')
