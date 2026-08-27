@@ -352,6 +352,24 @@ describe('llm-fallback invariants', () => {
     }).not.toThrow()
   })
 
+  it('retires a pending target when a later step opens without the owning step closing', async () => {
+    const ctx = await setup()
+    const session = openStep(ctx, 'fallback-invariant-unclosed-step')
+    // A log truncated between the record and its retry keeps no `step/end`.
+    // The header a resumed session appends for its own first request belongs
+    // to that request's route, not to this record's retry.
+    session.append('llm/fallback', move)
+    session.append('turn/start', { turn: 2 })
+    session.append('step/start', { turn: 2, step: 1 })
+
+    expect(() => {
+      session.append('request/header', {
+        header: { config: { provider: 'other', model: 'm9' } },
+        reason: 'resume',
+      })
+    }).not.toThrow()
+  })
+
   it('validates existing session histories on late registration', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)

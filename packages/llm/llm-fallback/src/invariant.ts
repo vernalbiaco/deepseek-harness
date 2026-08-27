@@ -62,12 +62,18 @@ function routeInForce(history: readonly SessionEvent[]): FallbackRoute | undefin
  * here, backward, rather than from `llm/fallback` looking ahead for a header
  * that does not exist yet at append time.
  *
- * The scan stops at the owning step's `step/end`, which `AgentLoop.turn()`
- * appends from a `finally` (packages/core/agent-loop/src/agent.ts:279-292):
- * a record whose retry appends no header is retired with its step instead of
- * staying armed against a header some later turn appends. A retry appends no
- * header when its route already equals the one in force, because
- * `buildRequest` appends `request/header` only when the header differs
+ * The scan stops at either boundary of the owning step: the `step/end` that
+ * `AgentLoop.turn()` appends from a `finally`, and the `step/start` that opens
+ * any later step (packages/core/agent-loop/src/agent.ts:279-292). A retry
+ * re-enters `step()`'s own request loop without appending either
+ * (packages/core/agent-loop/src/agent.ts:333-390), so neither boundary can
+ * separate a record from the header that legitimately confirms it, while a
+ * record whose retry appends no header is retired with its step instead of
+ * staying armed against a header some later step appends — including the
+ * unconditional first header of a resumed session, whose own `step/start`
+ * precedes it even when the step that recorded the failover never closed. A
+ * retry appends no header when its route already equals the one in force,
+ * because `buildRequest` appends `request/header` only when the header differs
  * (packages/core/agent-loop/src/agent.ts:483-488), and `resolveConfig`
  * (./config.ts) rejects a duplicate route within `backups` but not one that
  * duplicates the session's own primary — that route is not itself a member of
@@ -83,6 +89,7 @@ function validateHeaderFollowsFallback(
   const prior = history.findLast(candidate =>
     candidate.type === 'llm/fallback'
     || candidate.type === 'request/header'
+    || candidate.type === 'step/start'
     || candidate.type === 'step/end')
   if (prior?.type !== 'llm/fallback') return
   const { to } = prior.data
