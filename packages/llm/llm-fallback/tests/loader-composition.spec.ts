@@ -85,10 +85,13 @@ describe('real Loader composition', () => {
       "- name: '@deepseek-ai/dsh-agent-loop'",
     ])
 
+    const names = [...loaded.loader.entries()].map(entry => entry.options.name)
     const unloaded = [...loaded.loader.entries()]
       .filter(entry => entry.fiber === undefined && !entry.disabled)
       .map(entry => entry.options.name)
     expect(unloaded).toEqual([])
+    expect(names).toContain('@deepseek-ai/dsh-llm-retry')
+    expect(names).toContain('@deepseek-ai/dsh-llm-fallback')
   })
 
   it('fails load with an empty backups list', { timeout: 60_000 }, async () => {
