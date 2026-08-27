@@ -25,6 +25,14 @@ export interface FallbackState {
   primary: SelectedRoute | undefined
   /** Route adopted from outside this plugin, applied at the next assembly. */
   pending: SelectedRoute | undefined
+  /**
+   * Highest cursor this agent has ever held, so `backups[0 .. reached - 1]` are
+   * the backups this plugin has written. Never decreases, including across a
+   * turn reset or a promotion, because a route written earlier stays in the
+   * durable header history and can still be delegated back. `advance()` raises
+   * it only after its length guard, so it never exceeds `backups.length`.
+   */
+  reached: number
   /** Turn that last reset the cursor, so mid-turn steering cannot reset again. */
   lastResetTurn: number | undefined
 }
@@ -38,6 +46,7 @@ export function createState(): FallbackState {
     cursor: 0,
     primary: undefined,
     pending: undefined,
+    reached: 0,
     lastResetTurn: undefined,
   }
 }
@@ -66,7 +75,8 @@ export function resetForTurn(state: FallbackState, turn: number): void {
 
 /**
  * Move to the next backup after a failure this plugin owns.
- * The first move captures the failing route so a later reset can restore it.
+ * The first move captures the failing route so a later reset can restore it,
+ * and every move records how far the cursor has reached.
  *
  * @param state - the agent's failover state.
  * @param chain - the resolved backup chain.
@@ -85,6 +95,7 @@ export function advance(
   // length, so the incremented cursor indexes a route this chain holds.
   // oxlint-disable-next-line typescript/no-non-null-assertion
   const backup = chain.backups[state.cursor - 1]!
+  if (state.cursor > state.reached) state.reached = state.cursor
   return { ...backup }
 }
 
@@ -115,17 +126,17 @@ export function targetFor(
 
 /**
  * Stage a route chosen outside this plugin, to take effect at the next assembly.
- * A delegated route is an external choice only when it names no route of the
- * resolved chain, neither the captured primary nor any configured backup. Every
- * route this plugin writes is a chain route, and a delegation can be that write
- * read back: with no route owner mounted the delegation is the durable header,
- * and `installModelSelection` replays the selection captured when the step
- * assembled, which under an owner that reads the header is the same write one
- * step behind. A delegation naming a chain route is therefore consistent with no
- * choice at all, and a route outside the chain can be nothing else.
+ * A delegated route is an external choice only when it names no route this
+ * plugin has written — neither the captured primary nor a backup at or below the
+ * cursor's high-water mark. A delegation can be such a write read back: with no
+ * route owner mounted it is the durable header, and `installModelSelection`
+ * replays the selection captured when the step assembled, which under an owner
+ * that reads the header is the same write one step behind. Any other route,
+ * including a configured backup the cursor has never reached, can be nothing but
+ * a choice, because nothing in the session has ever requested it.
  *
- * A pick naming a chain route is consequently never adopted; `README.md` states
- * what that costs.
+ * A pick naming the captured primary or an already-written backup is
+ * consequently never adopted; `README.md` states what that costs.
  *
  * Before the first failover the plugin holds no primary and overrides no
  * request, so a change of selection reaches the provider on its own and needs no
@@ -148,7 +159,8 @@ export function adoptIfChanged(
   const primary = state.primary
   if (primary === undefined) return false
   if (sameRoute(delegated, primary)) return false
-  if (chain.backups.some(backup => sameRoute(delegated, backup))) return false
+  const written = chain.backups.slice(0, state.reached)
+  if (written.some(backup => sameRoute(delegated, backup))) return false
   state.pending = { provider: delegated.provider, model: delegated.model }
   return true
 }

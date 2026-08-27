@@ -423,7 +423,7 @@ describe('composition with other route owners', () => {
     expect(fallbackEvents(agent)).toHaveLength(1)
   })
 
-  it('never adopts a pick naming a route already in the chain', async () => {
+  it('never adopts a pick naming the backup it is already serving', async () => {
     const adapter = new RouteAdapter({
       'primary/m': [failure('RATE_LIMIT')],
       'b1/m1': [textResponse('backup')],
@@ -445,7 +445,7 @@ describe('composition with other route owners', () => {
     prompt(agent, 'third')
     await agent.whenIdle()
 
-    // A chain route is what this plugin writes itself, so the delegation
+    // This plugin wrote `b1/m1` itself at the failover, so the delegation
     // carrying this pick is identical to the one the same session produces with
     // no pick at all. The pick is therefore never adopted: the cursor keeps
     // serving the backup and every turn keeps re-probing the primary.
@@ -454,13 +454,12 @@ describe('composition with other route owners', () => {
     expect(fallbackEvents(agent)).toHaveLength(3)
   })
 
-  it('never adopts a pick naming a backup the cursor has not reached', async () => {
+  it('adopts a pick naming a backup the cursor has never reached', async () => {
     const adapter = new RouteAdapter({
       'primary/m': [failure('RATE_LIMIT')],
       'b1/m1': [textResponse('backup')],
+      'b2/m2': [textResponse('picked')],
     })
-    // `b2/m2` is configured but scripted on no route, so a request reaching it
-    // would fail the test rather than pass silently.
     ;({ ctx: context } = await harness(adapter, TWO_BACKUPS))
     const agent = context.agentLoop.create(SessionId('failover-pick-unreached-backup'), {
       provider: 'primary',
@@ -476,12 +475,40 @@ describe('composition with other route owners', () => {
     prompt(agent, 'third')
     await agent.whenIdle()
 
-    // The second backup is a chain route too, so the rule suppresses this pick
-    // for the same reason it suppresses a pick of the served backup: the picker
-    // reports `b2/m2` while `b1/m1` keeps answering.
+    // The cursor never got past the first backup, so nothing in this session has
+    // requested `b2/m2` and no write of this plugin's can be what delegated it.
+    // The pick is staged in turn 2 and promoted at turn 3's assembly.
     expect(adapter.requests.map(r => `${r.provider}/${r.model}`))
-      .toEqual(['primary/m', 'b1/m1', 'primary/m', 'b1/m1', 'primary/m', 'b1/m1'])
-    expect(fallbackEvents(agent)).toHaveLength(3)
+      .toEqual(['primary/m', 'b1/m1', 'primary/m', 'b1/m1', 'b2/m2'])
+    expect(fallbackEvents(agent)).toHaveLength(2)
+  })
+
+  it('holds the chain position when an earlier cascade already wrote the last backup', async () => {
+    const adapter = new RouteAdapter({
+      'primary/m': [failure('RATE_LIMIT')],
+      'b1/m1': [failure('RATE_LIMIT')],
+      'b2/m2': [textResponse('second backup')],
+    })
+    ;({ ctx: context } = await harness(adapter, TWO_BACKUPS))
+    const agent = context.agentLoop.create(SessionId('failover-cascade-header-replay'), {
+      provider: 'primary',
+      model: 'm',
+    })
+    headerReadingSelection(agent, { provider: 'primary', model: 'm' })
+
+    for (const text of ['first', 'second', 'third']) {
+      prompt(agent, text)
+      await agent.whenIdle()
+    }
+
+    // Turn 1 cascades the whole chain, so every later turn assembles against a
+    // durable header naming `b2/m2` while the cursor sits back at the primary.
+    // That delegation is this plugin's own write read back, and adopting it
+    // would promote the last backup and end the per-turn re-probe.
+    expect(adapter.requests.map(r => `${r.provider}/${r.model}`)).toEqual([
+      'primary/m', 'b1/m1', 'b2/m2', 'primary/m', 'b1/m1', 'b2/m2', 'primary/m', 'b1/m1', 'b2/m2',
+    ])
+    expect(fallbackEvents(agent)).toHaveLength(6)
   })
 
   it('restarts the chain from a pick naming a route outside it', async () => {
@@ -677,9 +704,7 @@ describe('composition with other route owners', () => {
       'b1/m1': [textResponse('backup')],
       'b2/m2': [textResponse('picked')],
     })
-    // The chain holds `b1/m1` alone, so the replacement route is on no chain
-    // this plugin writes from and its delegation can only be an external choice.
-    ;({ ctx: context } = await harness(adapter, ONE_BACKUP, undefined, (ctx) => {
+    ;({ ctx: context } = await harness(adapter, TWO_BACKUPS, undefined, (ctx) => {
       ctx.on('agent/request', async (_payload, next) => {
         const resolved = await next()
         return override === undefined ? resolved : { ...resolved, ...override }

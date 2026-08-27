@@ -57,12 +57,22 @@ describe('adoptIfChanged()', () => {
     expect(state.pending).toBeUndefined()
   })
 
-  it('ignores a delegation naming a backup the cursor has not reached', () => {
+  it('stages a delegation naming a backup the cursor has never reached', () => {
     const state = createState()
     advance(state, chain, primary)
-    // An earlier turn that cascaded further leaves that backup in the durable
-    // header, so a delegation reading the header back can name a chain route
-    // the cursor is not on.
+    // Nothing in the session has ever requested the second backup, so no write
+    // of this plugin's can be what produced this delegation.
+    expect(adoptIfChanged(state, chain, { provider: 'b2', model: 'm2' })).toBe(true)
+    expect(state.pending).toEqual({ provider: 'b2', model: 'm2' })
+  })
+
+  it('ignores a delegation naming a backup an earlier cascade wrote', () => {
+    const state = createState()
+    advance(state, chain, primary)
+    advance(state, chain, { provider: 'b1', model: 'm1' })
+    resetForTurn(state, 2)
+    // The cascade left the second backup in the durable header, so a delegation
+    // reading the header back names it while the cursor sits at zero.
     expect(adoptIfChanged(state, chain, { provider: 'b2', model: 'm2' })).toBe(false)
     expect(state.pending).toBeUndefined()
   })
@@ -137,6 +147,17 @@ describe('advance()', () => {
     advance(state, chain, failed)
     failed.model = 'mutated'
     expect(state.primary).toEqual(primary)
+  })
+
+  it('records how far the cursor has reached and never lowers it', () => {
+    const state = createState()
+    advance(state, chain, primary)
+    advance(state, chain, { provider: 'b1', model: 'm1' })
+    expect(state.reached).toBe(2)
+    resetForTurn(state, 2)
+    advance(state, chain, primary)
+    expect(state.cursor).toBe(1)
+    expect(state.reached).toBe(2)
   })
 
   it('detaches the route it returns from the configured chain', () => {
