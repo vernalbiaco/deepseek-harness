@@ -80,8 +80,11 @@ export function advance(
   if (state.cursor === 0) state.primary = { ...failed }
   if (state.cursor >= chain.backups.length) return undefined
   state.cursor += 1
-  const backup = chain.backups[state.cursor - 1]
-  return backup === undefined ? undefined : { ...backup }
+  // The guard above already returned when the cursor reached the chain's
+  // length, so the incremented cursor indexes a route this chain holds.
+  // oxlint-disable-next-line typescript/no-non-null-assertion
+  const backup = chain.backups[state.cursor - 1]!
+  return { ...backup }
 }
 
 /**
@@ -100,8 +103,13 @@ export function targetFor(
   chain: ResolvedFallbackConfig,
 ): SelectedRoute | undefined {
   if (state.cursor === 0) return state.primary === undefined ? undefined : { ...state.primary }
-  const backup = chain.backups[state.cursor - 1]
-  return backup === undefined ? undefined : { ...backup }
+  // Every mutator of state.cursor (advance, resetForTurn, promotePending)
+  // keeps it within [0, chain.backups.length] for the one chain resolved
+  // once per apply() and never swapped, so a non-zero cursor here always
+  // indexes a route this chain holds.
+  // oxlint-disable-next-line typescript/no-non-null-assertion
+  const backup = chain.backups[state.cursor - 1]!
+  return { ...backup }
 }
 
 /**
