@@ -46,7 +46,7 @@ function loggedRoute(agent: Agent): SelectedRoute | undefined {
     model: config.model,
     ...config.reasoningEffort === undefined
       ? {}
-      : { reasoningEffort: String(config.reasoningEffort) },
+      : { reasoningEffort: config.reasoningEffort },
   }
 }
 
@@ -99,11 +99,15 @@ export function apply(ctx: Context, config: Config): void {
   const disposeRequest = ctx.on('agent/request', async ({ agent }, next): Promise<LlmCallConfig> => {
     const resolved = await next()
     const state = stateFor(agent)
-    // An externally changed route outranks the cursor. The variables assembled
-    // for this step still name the previous target; the switch reaches the
-    // prompt on the next step, matching installModelSelection's semantics.
-    if (adoptIfChanged(state, resolved)) return resolved
+    // The prompt for this step already names the assembled snapshot, so the
+    // request must use it even when an external route change is adopted here:
+    // applying the adopted route now would make {{model}} name a model the
+    // request does not use. Adoption still updates the cursor, so the new route
+    // becomes the target at the next assembly — the one-step deferral
+    // installModelSelection applies to a concurrent switch
+    // (packages/core/agent/src/model-selection.ts:28-31).
     const selected = state.assembled
+    adoptIfChanged(state, resolved)
     if (selected === undefined) return resolved
     state.lastWritten = { provider: selected.provider, model: selected.model }
     const { reasoningEffort: _inheritedEffort, ...withoutInheritedEffort } = resolved
