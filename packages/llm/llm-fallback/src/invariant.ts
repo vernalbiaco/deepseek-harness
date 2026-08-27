@@ -118,14 +118,17 @@ function validateFallback(
   if (!Number.isSafeInteger(cursor) || cursor < 1) {
     fail('llm/fallback cursor must be a positive safe integer')
   }
-  // The cursor is a per-turn counter (`resetForTurn` in ./state.ts): a
-  // repeated turn number never resets it, so the expected value chains off
-  // the prior record sharing this exact turn, not off the whole session.
-  const priorTurnFallback = history.findLast((prior): prior is SessionEvent<'llm/fallback'> =>
-    prior.type === 'llm/fallback' && prior.data.turn === turn)
-  const expectedCursor = (priorTurnFallback?.data.cursor ?? 0) + 1
-  if (cursor !== expectedCursor) {
-    fail(`llm/fallback cursor ${cursor} must equal ${expectedCursor} for turn ${turn}`)
+  // The scope is per-step, not per-turn: `promotePending` (./state.ts) can
+  // reset the cursor at any `system-prompt/assemble`, which fires once per
+  // step, so a later step in the same turn can legitimately restart at `1`
+  // after an earlier step already advanced past it. That promotion is not
+  // itself logged, so a cross-step comparison has no durable anchor — only a
+  // same-step, consecutive-record comparison does, since assembly runs once
+  // before a step's request loop starts and cannot fire again inside it.
+  const priorStepFallback = history.findLast((prior): prior is SessionEvent<'llm/fallback'> =>
+    prior.type === 'llm/fallback' && prior.data.turn === turn && prior.data.step === step)
+  if (priorStepFallback !== undefined && cursor !== priorStepFallback.data.cursor + 1) {
+    fail(`llm/fallback cursor ${cursor} must equal ${priorStepFallback.data.cursor + 1} for turn ${turn}/step ${step}`)
   }
 }
 

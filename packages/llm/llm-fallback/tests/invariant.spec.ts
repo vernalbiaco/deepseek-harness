@@ -237,6 +237,35 @@ describe('llm-fallback invariants', () => {
     }).not.toThrow()
   })
 
+  it('restarts the cursor sequence at a later step within the same turn', async () => {
+    const ctx = await setup()
+    const session = openStep(ctx, 'fallback-invariant-step-reset')
+    session.append('llm/fallback', move)
+    session.append('request/header', {
+      header: { config: { provider: 'b1', model: 'm1' } },
+      reason: 'change',
+    })
+    session.append('step/end', { turn: 1, step: 1 })
+    session.append('step/start', { turn: 1, step: 2 })
+    // A route promoted by an unrelated `agent/request` participant between
+    // assemblies (`promotePending` in ./state.ts) restarts the chain from a
+    // new primary; the cursor legitimately restarts at `1` in this step even
+    // though step 1 already reached `1` in the same turn.
+    session.append('request/header', {
+      header: { config: { provider: 'primary2', model: 'm2' } },
+      reason: 'change',
+    })
+    expect(() => {
+      session.append('llm/fallback', {
+        ...move,
+        step: 2,
+        from: { provider: 'primary2', model: 'm2' },
+        to: { provider: 'b1', model: 'm1' },
+        cursor: 1,
+      })
+    }).not.toThrow()
+  })
+
   it('rejects a retried request header naming a route other than the pending target', async () => {
     const ctx = await setup()
     const session = openStep(ctx, 'fallback-invariant-header-mismatch')
