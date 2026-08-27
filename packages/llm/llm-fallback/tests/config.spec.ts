@@ -77,6 +77,15 @@ describe('Config schema', () => {
       .toEqual([...DEFAULT_FAILOVER_CODES].sort())
   })
 
+  it('passes a supplied failoverCodes through so resolveConfig still replaces the defaults', () => {
+    const normalized = Config({
+      backups: [{ provider: 'p', model: 'm' }],
+      failoverCodes: ['RATE_LIMIT'],
+    })
+    expect(normalized.failoverCodes).toEqual(['RATE_LIMIT'])
+    expect([...resolveConfig(normalized).failoverCodes]).toEqual(['RATE_LIMIT'])
+  })
+
   it('keeps an explicitly empty failoverCodes empty so resolveConfig still rejects it', () => {
     const normalized = Config({ backups: [{ provider: 'p', model: 'm' }], failoverCodes: [] })
     expect(normalized.failoverCodes).toEqual([])

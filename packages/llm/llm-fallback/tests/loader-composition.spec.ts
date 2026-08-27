@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 import { Context, FiberState } from '@deepseek-ai/cordis'
-import Loader from '@deepseek-ai/cordis-plugin-loader'
+import Loader, { type Entry } from '@deepseek-ai/cordis-plugin-loader'
 import Include from '@deepseek-ai/cordis-plugin-include'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
@@ -111,7 +111,7 @@ const MOUNT_PREFIX: readonly string[] = [
  * @param name - the plugin name as written in the composition.
  * @returns the entry, which must exist.
  */
-function entryFor(loaded: Context, name: string) {
+function entryFor(loaded: Context, name: string): Entry {
   const entry = [...loaded.loader.entries()].find(candidate => candidate.options.name === name)
   if (entry === undefined) throw new Error(`loader entry "${name}" not mounted`)
   return entry

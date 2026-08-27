@@ -34,7 +34,7 @@ The keyless `provider-fallback` snapshot passes with and without the default exp
 
 ## Alternatives considered
 
-**Give `failoverCodes` a schema-level default of `DEFAULT_FAILOVER_CODES`.** This is an idiom the repository already uses (`dsh-agent-instructions`), and it resolves the empty-array collision. It loses on ownership: defaulting would move into the schema, against the rule that defaulting is an explicit step in the owning implementation, and it would make `resolveConfig`'s `?? DEFAULT_FAILOVER_CODES` unreachable.
+**Give `failoverCodes` a schema-level default of `DEFAULT_FAILOVER_CODES`.** This is an idiom the repository already uses (`dsh-agent-instructions`), and it resolves the empty-array collision. It loses on ownership: `resolveConfig` is the single place this package decides a default, and a schema-level default moves that decision somewhere else, against the rule that defaulting is an explicit step in the owning implementation. Applied and measured, it fails one test — `leaves an omitted failoverCodes absent so resolveConfig still defaults it`. `resolveConfig`'s `?? DEFAULT_FAILOVER_CODES` stays reachable, because `tests/config.spec.ts` calls `resolveConfig` directly with raw entries that never pass through the schema.
 
 **Treat an empty `failoverCodes` as "not configured".** One line in `resolveConfig`, and it needs no schema change. It deletes a deliberate misconfiguration guard: a user writing `failoverCodes: []` to mean "never fail over" would silently receive all ten default codes.
 
