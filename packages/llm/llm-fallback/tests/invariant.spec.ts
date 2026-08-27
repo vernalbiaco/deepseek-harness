@@ -167,6 +167,20 @@ describe('llm-fallback invariants', () => {
     }).toThrow(/inside an open turn/)
   })
 
+  it('rejects a record with no durable request header in force', async () => {
+    const ctx = await setup()
+    // Unlike openStep(), this never logs a `request/header`: `routeInForce()`
+    // has nothing to find, matching a corrupted or hand-built session log —
+    // the real plugin always logs a header before it can ever observe a
+    // failure (packages/core/agent-loop/src/agent.ts:483-488).
+    const session = ctx.sessions.create(SessionId('fallback-invariant-no-header'))
+    session.append('turn/start', { turn: 1 })
+    session.append('step/start', { turn: 1, step: 1 })
+    expect(() => {
+      session.append('llm/fallback', move)
+    }).toThrow(/must be appended after a durable request header/)
+  })
+
   it('rejects a from route that does not match the durable header in force', async () => {
     const ctx = await setup()
     const session = openStep(ctx, 'fallback-invariant-from-mismatch')
