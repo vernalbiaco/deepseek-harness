@@ -788,6 +788,42 @@ describe('boundaries the ordinary loop rarely exercises', () => {
     expect(fallbackEvents(agent)).toHaveLength(1)
   })
 
+  it('restores the effort a promotion strips before the promoted route is written', async () => {
+    const adapter = new RouteAdapter({
+      'primary/m': [failure('RATE_LIMIT')],
+      'b1/m1': [textResponse('backup')],
+      'b2/m2': [textResponse('picked')],
+    })
+    ;({ ctx: context } = await harness(adapter, ONE_BACKUP))
+    const agent = context.agentLoop.create(SessionId('failover-promotion-effort'), {
+      provider: 'primary',
+      model: 'm',
+    })
+    const selected: ModelSelectionRef = {
+      current: { provider: 'primary', model: 'm', reasoningEffort: ReasoningEffortId('high') },
+      assembled: undefined,
+    }
+    installModelSelection(agent.ctx, selected)
+
+    prompt(agent, 'first')
+    await agent.whenIdle()
+    selected.current = { provider: 'b2', model: 'm2', reasoningEffort: ReasoningEffortId('high') }
+    prompt(agent, 'second')
+    await agent.whenIdle()
+    prompt(agent, 'third')
+    await agent.whenIdle()
+
+    // `state.pending` holds a route alone, so promoting it at turn 3's assembly
+    // replaces the captured primary with one carrying no effort.
+    // `refreshPrimaryEffort` runs before `targetFor` on the first request after
+    // that assembly, and `AgentLoop.turn()` puts no request between the two, so
+    // the effort is restored before the promoted route is ever written.
+    expect(adapter.requests.map(r => `${r.provider}/${r.model}:${r.reasoningEffort}`)).toEqual([
+      'primary/m:high', 'b1/m1:undefined', 'primary/m:high', 'b1/m1:undefined', 'b2/m2:high',
+    ])
+    expect(fallbackEvents(agent)).toHaveLength(2)
+  })
+
   it('leaves the assembly untouched for a context with no agent', async () => {
     const adapter = new RouteAdapter({ 'primary/m': [textResponse('unused')] })
     ;({ ctx: context } = await harness(adapter, ONE_BACKUP))
