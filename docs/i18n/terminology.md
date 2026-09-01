@@ -101,6 +101,7 @@
 | capability seam | 能力 seam | | 功能 seam、能力接缝 | 本仓库 Service Definition、Service Provider 与 Consumer 三种角色组成完整可替换能力的命名架构概念；普通 `seam` 仍按其词条处理 |
 | feature | 功能 | | 能力 | SDK 产品与工程模型中的可管理产品单元 |
 | feature option | 功能选项 | | variant | 一项 SDK 功能内有限、可选择的实现或配置 |
+| catalog | 目录 | | 清单、名录 | 本仓库生成的参考文档写作「目录」：服务目录、配置目录、工具目录、事件目录；上游或第三方已安装的 catalog（如 pi-ai）在正文保留英文。命名角色 `directory` 同样译作「目录」，二者靠限定词区分 |
 | checkpoint | 检查点 | | | |
 | chunk | 分片 | | | |
 | compaction | 压缩 | 压缩（compaction） | | |
