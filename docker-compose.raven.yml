@@ -27,14 +27,21 @@ services:
     # is a DNS-rebinding defense, not authentication: declaring the name
     # widens it, and only Traefik's loopback bind still limits who can reach
     # it. See packages/client/connection/src/api-request-trust.ts.
-    command: ["web", "--no-open", "--trusted-host", "harness.local.raven.com"]
+    #
+    # `harness.localhost` exists because the Web UI needs a secure context.
+    # Browsers grant that to `127.0.0.1` and to any name ending in
+    # `.localhost`, but not to a custom name over plain HTTP: on
+    # `harness.local.raven.com` the client's readiness handshake fails, and
+    # the session list stays empty while the connection retries forever.
+    # Serving that name over HTTPS would also earn a secure context.
+    command: ["web", "--no-open", "--trusted-host", "harness.local.raven.com", "--trusted-host", "harness.localhost"]
     networks:
       - default
       - hybrid_public
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=hybrid_public_network"
-      - "traefik.http.routers.harness-web.rule=Host(`harness.local.raven.com`)"
+      - "traefik.http.routers.harness-web.rule=Host(`harness.local.raven.com`) || Host(`harness.localhost`)"
       - "traefik.http.routers.harness-web.entrypoints=web"
       - "traefik.http.services.harness-web.loadbalancer.server.port=8080"
 
@@ -50,7 +57,7 @@ services:
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=hybrid_public_network"
-      - "traefik.http.routers.harness-api.rule=Host(`harness-api.local.raven.com`)"
+      - "traefik.http.routers.harness-api.rule=Host(`harness-api.local.raven.com`) || Host(`harness-api.localhost`)"
       - "traefik.http.routers.harness-api.entrypoints=web"
       - "traefik.http.services.harness-api.loadbalancer.server.port=8081"
 
