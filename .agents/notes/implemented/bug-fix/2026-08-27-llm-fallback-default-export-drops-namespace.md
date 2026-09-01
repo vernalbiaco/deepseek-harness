@@ -2,6 +2,8 @@
 
 Status: implemented
 
+English | [中文](2026-08-27-llm-fallback-default-export-drops-namespace.zh.md)
+
 ## Problem
 
 `@deepseek-ai/dsh-llm-fallback` shipped `export default apply` alongside its namespace exports. The cordis Loader normalizes an imported module through `unwrapExports` ([vendor/loader/src/index.ts](../../../../vendor/loader/src/index.ts)), which prefers `.default`, so mounting the package from a `cordis.yml` handed cordis the bare `apply` function. `Registry.plugin` then read `Config` and `inject` off that function and found neither: config validation never ran on the path a user mounts from, and `inject: ['agents']` did not gate `apply()`.

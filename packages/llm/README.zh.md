@@ -30,6 +30,7 @@ llm 组提供 harness 的模型调用能力：一个提供方无关的服务，�
 | [`deepseek-llm-api-extensions/`](deepseek-llm-api-extensions/README.zh.md) | 在官方 DeepSeek 请求上注册具有生命周期归属的顶层字段 | `ctx.deepseekLlmApiExtensions` |
 | [`plugin-package-inventory-deepseek/`](plugin-package-inventory-deepseek/README.zh.md) | 为官方 DeepSeek 请求贡献当前启用的 Loader 包清单 | 贡献 `dsh_plugin_packages` |
 | [`llm-retry/`](llm-retry/README.zh.md) | 在持久 agent 步骤边界上按各提供方策略重试失败的模型请求 | 监听 `agent/request-error` |
+| [`llm-fallback/`](llm-fallback/README.zh.md) | 按顺序把失败的模型请求转到下一个已配置的备用模型 | 监听 `agent/request-error` |
 | [`token-meter/`](token-meter/README.zh.md) | 用固定启发式规则从持久会话日志测量请求与上下文压力 | `ctx.tokenMeter` |
 
 -----

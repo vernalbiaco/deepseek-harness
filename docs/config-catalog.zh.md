@@ -1190,6 +1190,32 @@ export interface DeepSeekCatalogModel {
 
 来源：[`packages/llm/llm-deepseek/src/config.ts:25`](../packages/llm/llm-deepseek/src/config.ts)
 
+<a id="deepseek-aidsh-llm-fallback"></a>
+
+## `@deepseek-ai/dsh-llm-fallback`
+
+需要：`agents`
+
+```ts config-catalog
+/** Composition entry for the failover chain. */
+export interface Config {
+  /** Ordered backup routes tried after the session's current route fails. */
+  backups: FallbackRoute[]
+  /** Failure codes that move the cursor; defaults to {@link DEFAULT_FAILOVER_CODES}. */
+  failoverCodes?: string[]
+}
+
+/** One provider route in the failover chain. */
+export interface FallbackRoute {
+  /** Registered provider route. */
+  provider: string
+  /** Provider-owned model id. */
+  model: string
+}
+```
+
+来源：[`packages/llm/llm-fallback/src/config.ts:33`](../packages/llm/llm-fallback/src/config.ts)
+
 <a id="deepseek-aidsh-llm-pi-ai"></a>
 
 ## `@deepseek-ai/dsh-llm-pi-ai`
