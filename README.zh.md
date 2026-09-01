@@ -63,7 +63,7 @@ make docker-down                                      # stop every service
 docker compose up -d api api-proxy                    # API at http://127.0.0.1:3081
 ```
 
-所有发布端口均绑定宿主机回环地址。该接口执行的是基于 `Host` 头的可达性策略而非身份认证，因此若绑定到可路由地址，任何能访问它的人都可以在容器内执行代码。
+所有发布端口均绑定宿主机回环地址。该接口执行的是基于 `Host` 头的可达性策略而非身份认证，因此若绑定到可路由地址，任何能访问它的人都可以在容器内执行代码。[`docker-compose.raven.yml`](docker-compose.raven.yml) 是一个覆盖文件，它额外把这两个服务经 RavenStack 共享的 Traefik 路由为 `harness.local.raven.com` 与 `harness-api.local.raven.com`；该 API 路由的私密程度仅取决于 Traefik 自身的绑定地址。它要求一个由 RavenStack 栈拥有的外部网络 `hybrid_public_network`，而 `make docker-infra` 会在该网络上提供一个绑定回环地址的 Traefik，供不运行 RavenStack 却要使用该覆盖文件的工作站使用。这两个主机名都已向 `/api` 信任策略声明，否则它会拒绝自己不认识的 `Host`。
 
 若要从别处访问该接口，就需要在面向远程的那个服务所运行的 Profile 上挂载 [`@deepseek-ai/dsh-api-key-auth`](packages/api/key-auth/README.md)——即 `api` 服务的 Profile，而非 Web UI 的——这样每个 `/api` 调用与每条事件 WebSocket 都必须出示 bearer 密钥，且任何带密钥的调用方都触达不到 settings 与 credentials 方法。Web UI 完全无法通过它完成认证，因为浏览器无法在 WebSocket 握手上设置 `Authorization` 头，因此挂载了闸门的 Profile 只服务程序化客户端。把该插件挂到错误的 Profile 上，或是把未挂载闸门的那个暴露出去，都会在无声中把配置平面重新开放给任何能访问该端口的人，而代码无法检测到这一点。
 

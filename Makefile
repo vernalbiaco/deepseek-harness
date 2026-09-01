@@ -2,7 +2,7 @@
 
 .PHONY: help install build clean typecheck lint test test-coverage hygiene \
 	docker-build docker-web docker-headless docker-down docker-logs \
-	docker-patch-plugins docker-check-plugins
+	docker-raven docker-infra docker-infra-down docker-patch-plugins docker-check-plugins
 
 # Compose services whose dsh profile may carry a patched dsh-llm-local-token.
 # Each service boots the profile of the same name.
@@ -42,6 +42,15 @@ docker-build: ## Build the dsh CLI image
 
 docker-web: ## Run dsh web via docker compose (http://localhost:3080)
 	docker compose up web web-proxy
+
+docker-raven: ## Run web + API behind RavenStack's Traefik (harness.local.raven.com, harness-api.local.raven.com)
+	docker compose -f docker-compose.yml -f docker-compose.raven.yml up web web-proxy api api-proxy
+
+docker-infra: ## Run the standalone Traefik + hybrid_public_network stand-in for RavenStack's infra
+	docker compose -f docker-compose.infra.yml up -d
+
+docker-infra-down: ## Remove the standalone infra Traefik and its network (stop raven services first)
+	docker compose -f docker-compose.infra.yml down
 
 docker-headless: ## Run a headless dsh task; usage: make docker-headless ARGS="..."
 	docker compose run --rm headless $(ARGS)

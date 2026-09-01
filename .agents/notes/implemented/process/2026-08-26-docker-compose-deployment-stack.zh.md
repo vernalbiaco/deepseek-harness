@@ -22,6 +22,14 @@ Status: implemented
 
 `workspaces/` 是供无关检出使用的绑定挂载根目录，其中每一项都可能是各自独立的仓库。Git 只跟踪它的 `.gitkeep`，构建上下文将其排除，并且它加入了双语发现所跳过的非源码目录集合：被挂载项目的 README 不属于本仓库的翻译源。
 
+### 经共享 Traefik 路由
+
+[`docker-compose.raven.yml`](../../../../docker-compose.raven.yml) 是一个覆盖文件，它为同样这两个服务添加第二条路径：用 Traefik 路由标签把它们发布为 `harness.local.raven.com` 与 `harness-api.local.raven.com`。标签位于 `dsh` 服务而非其边车上，因为 Traefik 发现的是该服务，而它所指向的端口是该服务网络命名空间内边车的监听端口。回环发布端口保持不变；该覆盖文件是新增一条路径，而非替换原有路径。
+
+这两个主机名都已向 `/api` 浏览器信任策略声明，该策略会拒绝任何既非回环、也未经配置的 `Host`。`web` 服务通过覆盖文件 `command` 中的 `--trusted-host` 标志声明自己的名称，使声明与引入该名称的覆盖文件同处一地；`api` Profile 则在其卷中已携带的 `trustedHosts` 里声明自己的名称。声明一个名称会放宽 DNS 重绑定防御，因此真正限定该授权范围的是 Traefik 的绑定地址，而非该策略本身。
+
+该覆盖文件以 `external` 方式使用 `hybrid_public_network`，因此当拥有该网络的栈未运行时，Compose 会拒绝启动。[`docker-compose.infra.yml`](../../../../docker-compose.infra.yml) 是一个独立的 Compose 项目，它创建该网络并在其上提供一个绑定回环地址的 Traefik，供希望在不运行该栈的情况下使用该覆盖文件的工作站使用。它与该栈自带的 Traefik 互斥：两者都绑定宿主机 80 端口，并担任相同的发现角色。要求 Traefik v3.6 或更新版本，因为直至 v3.5.6 的各版本都锁定 Docker API 1.24 并忽略 `DOCKER_API_VERSION`，而 Docker Engine v29 的守护进程会拒绝该版本。
+
 ### 第三方插件补丁
 
 [`patches/dsh-llm-local-token/`](../../../../patches/dsh-llm-local-token/README.md) 收录某第三方插件在锁定版本上的已打补丁模块，仅由 `make docker-patch-plugins` 应用。它们不是 pnpm 的 `patchedDependencies`：该插件在运行时被安装进 `dsh-home` 卷内的某个 Profile，任何安装期机制都触及不到那里。
@@ -42,6 +50,10 @@ Status: implemented
 
 **以只读方式挂载凭据目录。** 这是看起来更安全的挂载方式，在令牌临近过期之前都可用，而到那时刷新会失败、路由随之失效。把凭据复制到容器本地路径则更糟：在那里刷新会向服务方轮换 refresh token，而宿主机 CLI 仍持有已被取代的那个，导致用户在自己的 CLI 中被登出。
 
+**让 Traefik 覆盖文件自行创建 `hybrid_public_network`。** 把该网络声明为非 external，无论拥有它的栈是否运行，本栈都能启动。这也会让任一项目的拆除操作移除另一方正在使用的网络，并在无声中产出解析到并不存在的 Traefik 的主机名。以 `external` 方式使用它则会在启动时大声失败；而当没有其他方拥有该网络时，独立的 infra 项目会拥有它。
+
+**把 `/api` 策略一次性放宽到接受任意 Host。** 单个宽松设置可以免去每次部署都要声明自身名称的麻烦。该策略存在的前提正是 `Host` 是 DNS 重绑定唯一无法伪造的头，因此接受任意值等于彻底移除该防御，而非把它扩展到一个已知名称。
+
 **Fork 该插件并纳入仓库，或通过 pnpm 固定它。** Fork 意味着接管一个上游仍在维护的包，而 `patchedDependencies` 触及不到运行时安装进卷中的包。把模块覆盖到已安装的包上，才是与该包实际所在位置相匹配的机制，代价是任何一次重新安装都会静默地把它还原。
 
 ## Consequences
@@ -49,5 +61,7 @@ Status: implemented
 评估者无需本地工具链即可运行 `make docker-build && make docker-web`，程序则可针对 `api` 服务通过 HTTP 驱动 agent。Profile 状态、已安装插件与会话都能在镜像重新构建后留存。默认情况下没有任何东西可从宿主机之外访问；发布到回环地址之外始终是一次刻意的改动，README 说明了这样做授予了什么。
 
 有两条操作规则必须靠记忆遵守，因为没有任何机制强制它们。重启 `dsh` 服务时必须重建其边车。以及在对该包执行任何安装或更新之后必须重新应用插件补丁，`make docker-check-plugins` 让这一点可被检查。两处修复都应回到上游，在那里落地后即可让补丁目录退场。
+
+这些 Traefik 主机名只在 `/etc/hosts` 把它们映射到回环地址时才能解析，与其他 `*.local.raven.com` 名称一样；若没有该条目，这些名称可能被公网解析，请求随之离开本机。`api` Profile 的 `trustedHosts` 位于卷中而非仓库中，因此它与插件补丁有着相同的失效方式：重建该卷会丢弃它，相应路由将持续返回 403，直到它被恢复。
 
 `api` 的 Profile 组合是手工枚举的，因此网关未来所需的新条目会表现为一次在加载期就指明缺失服务的失败，而不是一个坏掉的端点。这正是 Loader 所设计的响亮失败，但也意味着该组合要手工跟踪网关的依赖。

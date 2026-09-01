@@ -22,6 +22,14 @@ The `api` service composes the `/api` gateway from host-plane rows only, with no
 
 `workspaces/` is a bind-mount root for unrelated checkouts, each possibly its own repository. Git tracks only its `.gitkeep`, the build context excludes it, and it joins the non-source directories that bilingual discovery skips: a mounted project's READMEs are not this repository's translation source.
 
+### Routing through a shared Traefik
+
+[`docker-compose.raven.yml`](../../../../docker-compose.raven.yml) is an override that adds a second path to the same two services: Traefik router labels publishing them as `harness.local.raven.com` and `harness-api.local.raven.com`. The labels sit on the `dsh` service rather than its sidecar, because Traefik discovers the service and the port it targets is the sidecar's listener inside that service network namespace. The loopback publishes stay; the override adds a path rather than replacing one.
+
+Both hostnames are declared to the `/api` browser-trust fence, which refuses any `Host` that is neither loopback nor configured. The `web` service declares its name through the `--trusted-host` flag in the override's `command`, so the declaration lives with the override that introduces the name; the `api` profile declares its own in the `trustedHosts` it already carries in the volume. Declaring a name widens a DNS-rebinding defense, so what still bounds the grant is Traefik's bind address, not the fence.
+
+The override consumes `hybrid_public_network` as `external`, so Compose refuses to start when the owning stack is down. [`docker-compose.infra.yml`](../../../../docker-compose.infra.yml) is a separate Compose project that creates that network and serves a loopback-bound Traefik on it, for a workstation that wants the override without the owning stack. It is mutually exclusive with that stack's own Traefik: both bind host port 80 and hold the same discovery role. Traefik v3.6 or newer is required because releases through v3.5.6 pin Docker API 1.24 and ignore `DOCKER_API_VERSION`, which Docker Engine v29 daemons reject.
+
 ### Third-party plugin patches
 
 [`patches/dsh-llm-local-token/`](../../../../patches/dsh-llm-local-token/README.md) holds patched modules for a third-party plugin at a pinned version, applied only by `make docker-patch-plugins`. They are not pnpm `patchedDependencies`: the plugin is installed at runtime into a profile inside the `dsh-home` volume, which no install-time mechanism reaches.
@@ -42,6 +50,10 @@ A `dsh plugin` install or update replaces the whole package directory and silent
 
 **Mount the credential directories read-only.** This is the safer-looking mount and it works until the token nears expiry, at which point refresh fails and the route dies. Copying the credential into a container-local path fails worse: a refresh there rotates the refresh token against the provider while the host CLI keeps the superseded one, logging the user out of their own CLI.
 
+**Let the Traefik override create `hybrid_public_network` itself.** Declaring the network non-external would start the stack whether or not the owning stack is up. It would also make either project's teardown remove a network the other is using, and would silently produce hostnames that resolve to a Traefik that is not there. Consuming it as `external` fails loudly at start instead, and the standalone infra project owns the network when nothing else does.
+
+**Widen the `/api` fence once, for any Host.** A single permissive setting would spare each deployment from naming itself. The fence exists because `Host` is the one header DNS rebinding cannot forge, so accepting any value removes the defense outright rather than extending it to a known name.
+
 **Vendor a fork of the plugin, or pin it through pnpm.** A fork owns a package the upstream still maintains, and `patchedDependencies` cannot reach a package installed at runtime into a volume. Copying modules over an installed package is the mechanism that matches where the package actually lives, at the cost of being silently reversible by any reinstall.
 
 ## Consequences
@@ -49,5 +61,7 @@ A `dsh plugin` install or update replaces the whole package directory and silent
 An evaluator runs `make docker-build && make docker-web` without a local toolchain, and a program drives the agent over HTTP against the `api` service. Profile state, installed plugins, and sessions survive image rebuilds. Nothing is reachable off-host by default; publishing beyond loopback stays a deliberate edit, and the README states what it grants.
 
 Two operational rules must be remembered because nothing enforces them. Restarting a `dsh` service requires recreating its sidecar. And the plugin patches must be reapplied after any install or update of that package, which `make docker-check-plugins` makes checkable. Both fixes belong upstream, and landing them there retires the patch directory.
+
+The Traefik hostnames resolve only where `/etc/hosts` maps them to loopback, as the other `*.local.raven.com` names are; without that entry the names may resolve publicly and the request leaves the machine. The `api` profile's `trustedHosts` lives in the volume rather than the repository, so it shares the plugin patches' failure mode: recreating the volume drops it, and the route 403s until it is restored.
 
 The `api` profile composition is enumerated by hand, so a future row that the gateway requires appears as a load-time failure naming the missing service rather than as a broken endpoint. That is the loud failure the loader is designed for, but it does mean the composition tracks the gateway's dependencies manually.
