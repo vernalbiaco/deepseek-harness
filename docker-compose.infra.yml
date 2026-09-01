@@ -1,0 +1,51 @@
+# Standalone stand-in for the infra docker-compose.raven.yml expects from the
+# RavenStack stack: a Traefik on `hybrid_public_network` with a `web` :80
+# entrypoint and label-based docker discovery. Use it to run `make docker-raven`
+# on a workstation where RavenStack is down.
+#
+# Mutually exclusive with RavenStack's own Traefik (`hybrid-traefik`): both
+# bind host port 80 and own the same discovery role. Run one or the other.
+#
+# Usage:
+#   make docker-infra        # Traefik + hybrid_public_network, detached
+#   make docker-raven        # then the harness services behind it
+#   make docker-infra-down   # removes Traefik AND hybrid_public_network, so
+#                            # stop the raven services first
+#
+# Ports bind to loopback only: the raven override routes /api through Traefik,
+# and /api has a reachability fence, not authentication (see the api service
+# in docker-compose.yml). The dashboard is http://127.0.0.1:8080.
+#
+# `name:` keeps this a separate compose project from the harness services, so
+# `make docker-down` never tears the infra down with them.
+name: harness-infra
+
+services:
+  traefik:
+    # v3.6+ required: this host's Docker daemon rejects API clients older
+    # than 1.40 (`docker version`), and Traefik v3.5.6 and earlier pin API
+    # 1.24, ignoring DOCKER_API_VERSION.
+    image: traefik:v3.6
+    command:
+      - "--providers.docker=true"
+      - "--providers.docker.exposedByDefault=false"
+      - "--providers.docker.network=hybrid_public_network"
+      - "--entrypoints.web.address=:80"
+      - "--api.dashboard=true"
+      - "--api.insecure=true"
+    ports:
+      - "127.0.0.1:80:80"
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - hybrid_public
+    restart: unless-stopped
+
+networks:
+  # Owned and created here, under the exact name the raven override and
+  # RavenStack's dev compose both declare. `attachable` lets ad-hoc containers
+  # (e.g. a curl debug container) join it.
+  hybrid_public:
+    name: hybrid_public_network
+    attachable: true

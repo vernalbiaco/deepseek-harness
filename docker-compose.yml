@@ -80,7 +80,9 @@ services:
       # api-proxy listens on 8081 inside this service's network namespace and
       # forwards to the API server's loopback-only 127.0.0.1:3081.
       # Published on the host loopback only: /api has a reachability fence,
-      # not authentication. Do not publish it on a routable address.
+      # not authentication. Do not publish it on a routable address. The
+      # docker-compose.raven.yml override adds a Traefik route for it; that
+      # route is only as private as Traefik's own bind address.
       - "127.0.0.1:3081:8081"
 
   api-proxy:

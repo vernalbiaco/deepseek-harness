@@ -1,0 +1,60 @@
+# Override that routes the web and API services through RavenStack's shared
+# Traefik on `hybrid_public_network`. The RavenStack stack must be running
+# first: it provides Traefik and the external network, and compose refuses to
+# start when an `external: true` network is absent.
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.raven.yml up
+#
+# Traefik routes:
+#   harness.local.raven.com      → web (web-proxy's 8080 in the web namespace)
+#   harness-api.local.raven.com  → api (api-proxy's 8081 in the api namespace)
+#
+# Both names resolve only if /etc/hosts maps them to 127.0.0.1, as the other
+# `*.local.raven.com` hosts are. The loopback publishes in docker-compose.yml
+# stay in place; this adds a second path, it does not replace one.
+#
+# The proxy sidecars share their service's network namespace
+# (`network_mode: "service:web"`), so the port Traefik targets is the socat
+# listener inside that namespace, and the labels belong on the service Traefik
+# discovers, not on the sidecar.
+
+services:
+  web:
+    # The /api browser-trust fence refuses any request whose Host is neither
+    # loopback nor declared, so the Traefik hostname this override introduces
+    # must be named here or every /api call from the browser 403s. The fence
+    # is a DNS-rebinding defense, not authentication: declaring the name
+    # widens it, and only Traefik's loopback bind still limits who can reach
+    # it. See packages/client/connection/src/api-request-trust.ts.
+    command: ["web", "--no-open", "--trusted-host", "harness.local.raven.com"]
+    networks:
+      - default
+      - hybrid_public
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=hybrid_public_network"
+      - "traefik.http.routers.harness-web.rule=Host(`harness.local.raven.com`)"
+      - "traefik.http.routers.harness-web.entrypoints=web"
+      - "traefik.http.services.harness-web.loadbalancer.server.port=8080"
+
+  # Routing the API through Traefik makes /api reachable from wherever
+  # Traefik's `web` entrypoint listens. /api has a reachability fence, not
+  # authentication (see the api service in docker-compose.yml), so this
+  # override is for a workstation whose Traefik is bound to loopback or a
+  # trusted interface, matching the other `*-api.local.raven.com` hosts.
+  api:
+    networks:
+      - default
+      - hybrid_public
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=hybrid_public_network"
+      - "traefik.http.routers.harness-api.rule=Host(`harness-api.local.raven.com`)"
+      - "traefik.http.routers.harness-api.entrypoints=web"
+      - "traefik.http.services.harness-api.loadbalancer.server.port=8081"
+
+networks:
+  hybrid_public:
+    external: true
+    name: hybrid_public_network
