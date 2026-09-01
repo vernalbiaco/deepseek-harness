@@ -48,3 +48,8 @@ native/system/test/bin/
 # Docker bind-mount root for extra project checkouts (each may be its own repo).
 workspaces/*
 !workspaces/.gitkeep
+
+# Locally minted TLS material for the Traefik HTTPS routes; the keys are
+# credentials. Regenerate with docker/certs/generate.sh. Anchored at the root
+# so it cannot also swallow the generator in docker/certs/.
+/certs/

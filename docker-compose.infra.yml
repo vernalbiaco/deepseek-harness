@@ -16,6 +16,11 @@
 # and /api has a reachability fence, not authentication (see the api service
 # in docker-compose.yml). The dashboard is http://127.0.0.1:8080.
 #
+# HTTPS serves the RavenStack hostnames because the Web UI needs a browser
+# secure context, which plain HTTP grants only to 127.0.0.1 and *.localhost
+# names. Run docker/certs/generate.sh once to mint certs/ before starting;
+# the mounts below fail loudly when it has not been run.
+#
 # `name:` keeps this a separate compose project from the harness services, so
 # `make docker-down` never tears the infra down with them.
 name: harness-infra
@@ -30,14 +35,19 @@ services:
       - "--providers.docker=true"
       - "--providers.docker.exposedByDefault=false"
       - "--providers.docker.network=hybrid_public_network"
+      - "--providers.file.filename=/etc/traefik/tls.yml"
       - "--entrypoints.web.address=:80"
+      - "--entrypoints.websecure.address=:443"
       - "--api.dashboard=true"
       - "--api.insecure=true"
     ports:
       - "127.0.0.1:80:80"
+      - "127.0.0.1:443:443"
       - "127.0.0.1:8080:8080"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./docker/traefik/tls.yml:/etc/traefik/tls.yml:ro
+      - ./certs:/certs:ro
     networks:
       - hybrid_public
     restart: unless-stopped

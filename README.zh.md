@@ -65,6 +65,8 @@ docker compose up -d api api-proxy                    # API at http://127.0.0.1:
 
 所有发布端口均绑定宿主机回环地址。该接口执行的是基于 `Host` 头的可达性策略而非身份认证，因此若绑定到可路由地址，任何能访问它的人都可以在容器内执行代码。[`docker-compose.raven.yml`](docker-compose.raven.yml) 是一个覆盖文件，它额外把这两个服务经 RavenStack 共享的 Traefik 路由为 `harness.local.raven.com` 与 `harness-api.local.raven.com`；该 API 路由的私密程度仅取决于 Traefik 自身的绑定地址。它要求一个由 RavenStack 栈拥有的外部网络 `hybrid_public_network`，而 `make docker-infra` 会在该网络上提供一个绑定回环地址的 Traefik，供不运行 RavenStack 却要使用该覆盖文件的工作站使用。这两个主机名都已向 `/api` 信任策略声明，否则它会拒绝自己不认识的 `Host`。
 
+Web UI 需要浏览器的安全上下文，而纯 HTTP 只会把它授予 `127.0.0.1` 以及以 `.localhost` 结尾的名称；在其他任何主机名上，会话列表都会保持为空，连接则不断重试。因此该覆盖文件还会路由 `harness.localhost` 与 `harness-api.localhost`，并用本地签发的证书以 HTTPS 提供全部名称：先运行一次 `make docker-certs`，再运行 `make docker-certs-trust`，把该 CA 加入当前用户的浏览器信任库。
+
 若要从别处访问该接口，就需要在面向远程的那个服务所运行的 Profile 上挂载 [`@deepseek-ai/dsh-api-key-auth`](packages/api/key-auth/README.md)——即 `api` 服务的 Profile，而非 Web UI 的——这样每个 `/api` 调用与每条事件 WebSocket 都必须出示 bearer 密钥，且任何带密钥的调用方都触达不到 settings 与 credentials 方法。Web UI 完全无法通过它完成认证，因为浏览器无法在 WebSocket 握手上设置 `Authorization` 头，因此挂载了闸门的 Profile 只服务程序化客户端。把该插件挂到错误的 Profile 上，或是把未挂载闸门的那个暴露出去，都会在无声中把配置平面重新开放给任何能访问该端口的人，而代码无法检测到这一点。
 
 挂载 Claude Code 与 Codex 的凭据目录后，[`dsh-llm-local-token`](https://github.com/tianxia--/dsh-llm-local-token) 即可将这些订阅作为模型路由提供。这些挂载为可读写：插件会在令牌临近过期时刷新，并写回宿主机 CLI 读取的同一个文件。[`patches/dsh-llm-local-token/`](patches/dsh-llm-local-token/README.md) 收录了该版本在 Linux 上所需的修复，`make docker-patch-plugins` 可在任何一次重新安装后重新应用它们。
