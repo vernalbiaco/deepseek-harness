@@ -1,0 +1,17 @@
+# Traefik dynamic configuration: the locally minted certificate the HTTPS
+# routers present. Certificates cannot be declared through command-line flags,
+# so this file is the only reason the standalone Traefik runs a file provider.
+#
+# Both files come from docker/certs/generate.sh and are mounted read-only.
+# Setting the default certificate too means a request arriving on the HTTPS
+# entrypoint under an unrouted name gets this certificate rather than Traefik's
+# throwaway self-signed one, keeping the failure a clean 404.
+tls:
+  certificates:
+    - certFile: /certs/harness.crt
+      keyFile: /certs/harness.key
+  stores:
+    default:
+      defaultCertificate:
+        certFile: /certs/harness.crt
+        keyFile: /certs/harness.key

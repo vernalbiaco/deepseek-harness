@@ -2,7 +2,8 @@
 
 .PHONY: help install build clean typecheck lint test test-coverage hygiene \
 	docker-build docker-web docker-headless docker-down docker-logs \
-	docker-raven docker-infra docker-infra-down docker-patch-plugins docker-check-plugins
+	docker-raven docker-infra docker-infra-down docker-certs docker-certs-trust \
+	docker-patch-plugins docker-check-plugins
 
 # Compose services whose dsh profile may carry a patched dsh-llm-local-token.
 # Each service boots the profile of the same name.
@@ -45,6 +46,16 @@ docker-web: ## Run dsh web via docker compose (http://localhost:3080)
 
 docker-raven: ## Run web + API behind RavenStack's Traefik (harness.local.raven.com, harness-api.local.raven.com)
 	docker compose -f docker-compose.yml -f docker-compose.raven.yml up web web-proxy api api-proxy
+
+docker-certs: ## Mint the local CA and TLS certificate the HTTPS routes present
+	./docker/certs/generate.sh
+
+docker-certs-trust: ## Add the local CA to this user's Chrome/Firefox NSS store (no sudo; needs certutil)
+	@command -v certutil >/dev/null 2>&1 || { \
+		echo "certutil not found: install it first (Debian/Ubuntu: sudo apt-get install -y libnss3-tools)"; exit 1; }
+	@test -f certs/ca.crt || { echo "certs/ca.crt missing: run 'make docker-certs' first"; exit 1; }
+	certutil -d sql:$$HOME/.pki/nssdb -A -t "C,," -n "DeepSeek Harness local CA" -i certs/ca.crt
+	@echo "trusted; restart the browser for it to take effect"
 
 docker-infra: ## Run the standalone Traefik + hybrid_public_network stand-in for RavenStack's infra
 	docker compose -f docker-compose.infra.yml up -d
