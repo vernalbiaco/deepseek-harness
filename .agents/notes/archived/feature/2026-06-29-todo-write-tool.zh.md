@@ -39,7 +39,7 @@ schema 强制 type/required/enum。在此之上，`execute` 拒绝为空或重�
 
 ## 为何没有 cordis-catalog 条目 / 没有 `@mode`
 
-`todo/write` 是 `SessionEventMap` 的成员，不是一等的 cordis `interface Events` 事件。catalog 生成器（`scripts/gen-cordis-catalog.ts`）扫描 `interface Events` 声明；`SessionEventMap` 变体搭载现有的 `session/event` emit，不产生新的 catalog 行。因此它不携带 `@mode` 标签（生成器仅对 `interface Events` 成员要求该标签）——添加一个毫无意义。
+`todo/write` 是 `SessionEventMap` 的成员，不是一等的 cordis `interface Events` 事件。目录生成器（`scripts/gen-cordis-catalog.ts`）扫描 `interface Events` 声明；`SessionEventMap` 变体搭载现有的 `session/event` emit，不产生新的目录行。因此它不携带 `@mode` 标签（生成器仅对 `interface Events` 成员要求该标签）——添加一个毫无意义。
 
 ## 测试
 
