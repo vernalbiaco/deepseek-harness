@@ -34,7 +34,15 @@ services:
     # `harness.local.raven.com` the client's readiness handshake fails, and
     # the session list stays empty while the connection retries forever.
     # Serving that name over HTTPS would also earn a secure context.
-    command: ["web", "--no-open", "--trusted-host", "harness.local.raven.com", "--trusted-host", "harness.localhost"]
+    #
+    # `DSH_TAILNET_HOST` is the `*.ts.net` name when this host is reached over
+    # Tailscale (`tailscale serve --bg 3080`). It varies per tailnet, so it
+    # comes from `.env` rather than being written here. The default is a name
+    # under the reserved `.invalid` TLD, which can never resolve: an unset
+    # variable therefore declares nothing reachable instead of leaving an
+    # empty argument. That path needs no certificate of its own — Tailscale
+    # terminates TLS with a publicly trusted certificate for the name.
+    command: ["web", "--no-open", "--trusted-host", "harness.local.raven.com", "--trusted-host", "harness.localhost", "--trusted-host", "${DSH_TAILNET_HOST:-harness.invalid}"]
     networks:
       - default
       - hybrid_public
