@@ -67,6 +67,8 @@ docker compose up -d api api-proxy                    # API at http://127.0.0.1:
 
 Web UI 需要浏览器的安全上下文，而纯 HTTP 只会把它授予 `127.0.0.1` 以及以 `.localhost` 结尾的名称；在其他任何主机名上，会话列表都会保持为空，连接则不断重试。因此该覆盖文件还会路由 `harness.localhost` 与 `harness-api.localhost`，并用本地签发的证书以 HTTPS 提供全部名称：先运行一次 `make docker-certs`，再运行 `make docker-certs-trust`，把该 CA 加入当前用户的浏览器信任库。
 
+若要从另一台设备访问 Web UI，请把本机接入私有网络，而不是把端口发布出去。使用 Tailscale 时，`tailscale serve --bg 3080` 会把 tailnet 名称代理到回环端口，并以公开受信任的证书终止 TLS，因此该源属于安全上下文，且不暴露任何端口；请在 `.env` 中把 `DSH_TAILNET_HOST` 设为该 `*.ts.net` 名称，使信任策略接受它。`tailscale funnel` 会改为发布到整个互联网，在这里是错误的命令。任何能访问 Web UI 的人都可以在容器内执行代码，并读取已挂载的 Claude 与 Codex 凭据，因此真正限制访问范围的是这张私有网络，而不是那道信任策略。
+
 若要从别处访问该接口，就需要在面向远程的那个服务所运行的 Profile 上挂载 [`@deepseek-ai/dsh-api-key-auth`](packages/api/key-auth/README.md)——即 `api` 服务的 Profile，而非 Web UI 的——这样每个 `/api` 调用与每条事件 WebSocket 都必须出示 bearer 密钥，且任何带密钥的调用方都触达不到 settings 与 credentials 方法。Web UI 完全无法通过它完成认证，因为浏览器无法在 WebSocket 握手上设置 `Authorization` 头，因此挂载了闸门的 Profile 只服务程序化客户端。把该插件挂到错误的 Profile 上，或是把未挂载闸门的那个暴露出去，都会在无声中把配置平面重新开放给任何能访问该端口的人，而代码无法检测到这一点。
 
 挂载 Claude Code 与 Codex 的凭据目录后，[`dsh-llm-local-token`](https://github.com/tianxia--/dsh-llm-local-token) 即可将这些订阅作为模型路由提供。这些挂载为可读写：插件会在令牌临近过期时刷新，并写回宿主机 CLI 读取的同一个文件。[`patches/dsh-llm-local-token/`](patches/dsh-llm-local-token/README.md) 收录了该版本在 Linux 上所需的修复，`make docker-patch-plugins` 可在任何一次重新安装后重新应用它们。
