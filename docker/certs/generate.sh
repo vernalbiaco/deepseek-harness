@@ -35,7 +35,7 @@ cat > "$out/harness.ext" <<'EXT'
 basicConstraints=CA:FALSE
 keyUsage=critical,digitalSignature,keyEncipherment
 extendedKeyUsage=serverAuth
-subjectAltName=DNS:harness.local.raven.com,DNS:harness-api.local.raven.com,DNS:harness.localhost,DNS:harness-api.localhost,IP:127.0.0.1
+subjectAltName=DNS:harness.local.raven.com,DNS:harness-api.local.raven.com,DNS:harness.localhost,DNS:harness-api.localhost,DNS:harness.ernestojpamajr.com,DNS:omni.localhost,DNS:omni.ernestojpamajr.com,IP:127.0.0.1
 EXT
 
 openssl x509 -req -in "$out/harness.csr" -CA "$out/ca.crt" -CAkey "$out/ca.key" \

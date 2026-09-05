@@ -84,7 +84,7 @@ make docker-omni-check                                   # confirm the services 
 make docker-all                                          # Traefik, gateway, and both services
 ```
 
-仪表盘绑定宿主机回环地址，且在首次使用 `OMNIROUTE_INITIAL_PASSWORD` 登录之前不设身份认证。在其中签发的密钥以 `OMNIROUTE_API_KEY` 写入 `.env`，覆盖文件会在已接入的服务内部把它映射到 `DEEPSEEK_API_KEY`；而 `DEEPSEEK_API_KEY` 本身仍保留真实的 DeepSeek 密钥，因为直连模式的目标读取的是同一个 `.env`。`make docker-omni-key` 会打印相应步骤，`make docker-omni-check` 则报告运行中的服务能否访问该网关。同一条隧道还把该仪表盘发布为 `omni.ernestojpamajr.com`，直接指向它的回环端口而非经由 Traefik；harness 服务经 `omniroute_network` 访问网关，因此它们的模型流量不会走这个名称。
+仪表盘绑定宿主机回环地址，且在首次使用 `OMNIROUTE_INITIAL_PASSWORD` 登录之前不设身份认证。在其中签发的密钥以 `OMNIROUTE_API_KEY` 写入 `.env`，覆盖文件会在已接入的服务内部把它映射到 `DEEPSEEK_API_KEY`；而 `DEEPSEEK_API_KEY` 本身仍保留真实的 DeepSeek 密钥，因为直连模式的目标读取的是同一个 `.env`。`make docker-omni-key` 会打印相应步骤，`make docker-omni-check` 则报告运行中的服务能否访问该网关。同一条隧道还把该仪表盘发布为 `omni.ernestojpamajr.com`，由 Traefik 依据网关自身的路由标签对外提供；harness 服务经 `omniroute_network` 访问网关，因此它们的模型流量不会走这个名称。
 
 覆盖文件在启动环境而非 `.env` 中设置 `DEEPSEEK_BASE_URL`，并且只要有 `.env` 文件设置了它，`dsh` 就会拒绝启动：源码检出以绑定挂载置于 `/workspace`，因此项目内的文件不得能够改变 Agent 访问网络的去向。
 

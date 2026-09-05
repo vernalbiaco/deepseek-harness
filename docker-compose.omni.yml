@@ -12,9 +12,17 @@
 # take the gateway with it. OmniRoute also serves host-side tools (Cursor,
 # Claude Code) that have nothing to do with this repo.
 #
-# The dashboard is http://127.0.0.1:20128 and is published on loopback only:
-# until first login it is unauthenticated. Log in with OMNIROUTE_INITIAL_PASSWORD
-# from .env, then mint the key that DEEPSEEK_API_KEY carries.
+# The dashboard is http://127.0.0.1:20128 on the host loopback, and Traefik
+# serves it as `omni.ernestojpamajr.com` and `omni.localhost`. Until first login
+# it is unauthenticated. Log in with OMNIROUTE_INITIAL_PASSWORD from .env, then
+# mint the key that OMNIROUTE_API_KEY carries.
+#
+# `omni.ernestojpamajr.com` is public: a Cloudflare tunnel forwards it to
+# Traefik's `web` entrypoint, and Cloudflare Access is the only authentication
+# in front of it. That ingress rule is managed in Cloudflare, not on this host.
+#
+# Traefik discovery makes this project depend on `hybrid_public_network`, so
+# `make docker-omni` starts the infra project first.
 name: harness-omni-gateway
 
 services:
@@ -39,6 +47,19 @@ services:
     mem_limit: 10g
     networks:
       - omniroute
+      - hybrid_public
+    # `traefik.docker.network` is set per container as well as on the provider:
+    # this container sits on two networks, and without it Traefik may pick the
+    # omniroute_network address, which it cannot reach, and answer 502.
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=hybrid_public_network"
+      - "traefik.http.routers.omni-gateway.rule=Host(`omni.ernestojpamajr.com`) || Host(`omni.localhost`)"
+      - "traefik.http.routers.omni-gateway.entrypoints=web"
+      - "traefik.http.routers.omni-gateway-tls.rule=Host(`omni.ernestojpamajr.com`) || Host(`omni.localhost`)"
+      - "traefik.http.routers.omni-gateway-tls.entrypoints=websecure"
+      - "traefik.http.routers.omni-gateway-tls.tls=true"
+      - "traefik.http.services.omni-gateway.loadbalancer.server.port=20128"
 
 volumes:
   # Created 2026-09-05 by an earlier standalone deployment and reused as-is:
@@ -56,3 +77,9 @@ networks:
   omniroute:
     name: omniroute_network
     attachable: true
+  # Traefik's discovery network, owned by docker-compose.infra.yml or the
+  # RavenStack stack. Consumed as external so the gateway refuses to start when
+  # no Traefik is up, rather than publishing hostnames nothing serves.
+  hybrid_public:
+    external: true
+    name: hybrid_public_network

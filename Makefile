@@ -91,10 +91,15 @@ docker-certs-trust: ## Add the local CA to this user's Chrome/Firefox NSS store 
 docker-infra: ## Run the standalone Traefik + hybrid_public_network stand-in for RavenStack's infra
 	docker compose -f docker-compose.infra.yml up -d
 
-docker-infra-down: ## Remove the standalone infra Traefik and its network (stop raven services first)
+docker-infra-down: ## Remove the standalone infra Traefik and its network (stop the raven services and the gateway first)
 	docker compose -f docker-compose.infra.yml down
 
-docker-omni: ## Run the OmniRoute gateway + omniroute_network, detached (http://localhost:20128)
+# Traefik first: docker-compose.omni.yml consumes hybrid_public_network as
+# external for its router labels, so the gateway cannot start without it. The
+# infra target is `up -d` and idempotent, so this reconciles an already-running
+# Traefik rather than restarting one.
+docker-omni: ## Run the OmniRoute gateway behind Traefik, detached (http://localhost:20128, omni.localhost)
+	@$(MAKE) --no-print-directory docker-infra
 	docker compose -f docker-compose.omni.yml up -d
 
 docker-omni-down: ## Remove the OmniRoute gateway and omniroute_network (stop wired services first)
@@ -112,7 +117,7 @@ docker-omni-key: ## How to mint the OmniRoute API key that OMNIROUTE_API_KEY car
 	@echo "1. open http://127.0.0.1:20128 and log in"
 	@echo "   password: OMNIROUTE_INITIAL_PASSWORD in .env"
 	@echo "2. connect a provider that serves the deepseek-* models dsh requests"
-	@echo "3. Dashboard -> Endpoints -> create a key"
+	@echo "3. Dashboard -> API Keys -> Create API Key (the key is shown only once)"
 	@echo "4. set OMNIROUTE_API_KEY in .env, then rerun 'make docker-omni-web' or 'make docker-all'"
 	@echo "   DEEPSEEK_API_KEY stays the real DeepSeek key for the direct-mode targets"
 	@echo "5. verify with 'make docker-omni-check'"
