@@ -1,0 +1,58 @@
+# OmniRoute: an OpenAI-compatible AI gateway the harness services can route
+# their DeepSeek traffic through instead of calling the public API directly.
+#
+# Usage:
+#   make docker-omni        # gateway + omniroute_network, detached
+#   make docker-omni-web    # then the harness services wired to it
+#   make docker-omni-down   # removes the gateway AND omniroute_network, so
+#                           # stop the wired harness services first
+#
+# `name:` keeps this a separate compose project from the harness services, for
+# the same reason docker-compose.infra.yml does: `make docker-down` must not
+# take the gateway with it. OmniRoute also serves host-side tools (Cursor,
+# Claude Code) that have nothing to do with this repo.
+#
+# The dashboard is http://127.0.0.1:20128 and is published on loopback only:
+# until first login it is unauthenticated. Log in with OMNIROUTE_INITIAL_PASSWORD
+# from .env, then mint the key that DEEPSEEK_API_KEY carries.
+name: harness-omni-gateway
+
+services:
+  omniroute:
+    image: diegosouzapw/omniroute:latest
+    # Fixed so `docker exec omniroute ...` keeps working across projects.
+    container_name: omniroute
+    restart: unless-stopped
+    # OmniRoute flushes SQLite on shutdown; upstream's own recipe allows 40s.
+    stop_grace_period: 40s
+    ports:
+      - "127.0.0.1:20128:20128"
+    volumes:
+      - omniroute-data:/app/data
+    environment:
+      # V8 old-space. Upstream's "one coding agent" sizing; the 1024 image
+      # default is a dashboard-only floor that FATAL ERRORs on the long
+      # POST /v1/responses bodies a coding agent sends.
+      OMNIROUTE_MEMORY_MB: 8192
+      INITIAL_PASSWORD: ${OMNIROUTE_INITIAL_PASSWORD:?set OMNIROUTE_INITIAL_PASSWORD in .env}
+    # Ceiling sits above the heap: native buffers live outside V8.
+    mem_limit: 10g
+    networks:
+      - omniroute
+
+volumes:
+  # Created 2026-09-05 by an earlier standalone deployment and reused as-is:
+  # it holds the auto-generated JWT_SECRET / API_KEY_SECRET / storage key in
+  # /app/data/server.env. A fresh volume would regenerate them and invalidate
+  # every key already minted from the dashboard.
+  omniroute-data:
+    external: true
+    name: omniroute_omniroute-data
+
+networks:
+  # Owned and created here, under the name docker-compose.omni-wire.yml
+  # declares as external. `attachable` lets ad-hoc containers (a curl debug
+  # container, say) join it.
+  omniroute:
+    name: omniroute_network
+    attachable: true
