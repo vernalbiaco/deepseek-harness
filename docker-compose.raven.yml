@@ -9,10 +9,18 @@
 # Traefik routes:
 #   harness.local.raven.com      → web (web-proxy's 8080 in the web namespace)
 #   harness-api.local.raven.com  → api (api-proxy's 8081 in the api namespace)
+#   harness.ernestojpamajr.com   → web, from the internet through a Cloudflare tunnel
 #
-# Both names resolve only if /etc/hosts maps them to 127.0.0.1, as the other
-# `*.local.raven.com` hosts are. The loopback publishes in docker-compose.yml
-# stay in place; this adds a second path, it does not replace one.
+# The `*.local.raven.com` names resolve only if /etc/hosts maps them to
+# 127.0.0.1, as the other hosts of that domain are. The loopback publishes in
+# docker-compose.yml stay in place; this adds paths, it does not replace one.
+#
+# `harness.ernestojpamajr.com` is public. A cloudflared ingress rule forwards it
+# to this Traefik's `web` entrypoint on the host loopback, which the tunnel
+# reaches from inside the host, so Traefik's loopback bind does not limit it.
+# Authentication for that name is Cloudflare Access, outside this repository:
+# nothing here enforces it, and the name serves an unauthenticated agent that
+# can run code in the container the moment Access is removed or misconfigured.
 #
 # The proxy sidecars share their service's network namespace
 # (`network_mode: "service:web"`), so the port Traefik targets is the socat
@@ -25,8 +33,14 @@ services:
     # loopback nor declared, so the Traefik hostname this override introduces
     # must be named here or every /api call from the browser 403s. The fence
     # is a DNS-rebinding defense, not authentication: declaring the name
-    # widens it, and only Traefik's loopback bind still limits who can reach
-    # it. See packages/client/connection/src/api-request-trust.ts.
+    # widens it. For the `*.local.raven.com` names Traefik's loopback bind is
+    # what still limits who can reach them; for the public name nothing in
+    # this repository does. See packages/client/connection/src/api-request-trust.ts.
+    #
+    # The public name is declared here rather than rewritten at the tunnel.
+    # The fence requires Origin to equal Host whenever a browser sends one, and
+    # over HTTPS it always does, so an `httpHostHeader` rewrite to an internal
+    # name would 403 every /api call. The tunnel passes Host through instead.
     #
     # `harness.localhost` exists because the Web UI needs a secure context.
     # Browsers grant that to `127.0.0.1` and to any name ending in
@@ -34,16 +48,16 @@ services:
     # `harness.local.raven.com` the client's readiness handshake fails, and
     # the session list stays empty while the connection retries forever.
     # Serving that name over HTTPS would also earn a secure context.
-    command: ["web", "--no-open", "--trusted-host", "harness.local.raven.com", "--trusted-host", "harness.localhost"]
+    command: ["web", "--no-open", "--trusted-host", "harness.local.raven.com", "--trusted-host", "harness.localhost", "--trusted-host", "harness.ernestojpamajr.com"]
     networks:
       - default
       - hybrid_public
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=hybrid_public_network"
-      - "traefik.http.routers.harness-web.rule=Host(`harness.local.raven.com`) || Host(`harness.localhost`)"
+      - "traefik.http.routers.harness-web.rule=Host(`harness.local.raven.com`) || Host(`harness.localhost`) || Host(`harness.ernestojpamajr.com`)"
       - "traefik.http.routers.harness-web.entrypoints=web"
-      - "traefik.http.routers.harness-web-tls.rule=Host(`harness.local.raven.com`) || Host(`harness.localhost`)"
+      - "traefik.http.routers.harness-web-tls.rule=Host(`harness.local.raven.com`) || Host(`harness.localhost`) || Host(`harness.ernestojpamajr.com`)"
       - "traefik.http.routers.harness-web-tls.entrypoints=websecure"
       - "traefik.http.routers.harness-web-tls.tls=true"
       - "traefik.http.services.harness-web.loadbalancer.server.port=8080"

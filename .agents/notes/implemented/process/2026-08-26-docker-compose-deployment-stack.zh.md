@@ -30,6 +30,8 @@ Status: implemented
 
 该覆盖文件以 `external` 方式使用 `hybrid_public_network`，因此当拥有该网络的栈未运行时，Compose 会拒绝启动。[`docker-compose.infra.yml`](../../../../docker-compose.infra.yml) 是一个独立的 Compose 项目，它创建该网络并在其上提供一个绑定回环地址的 Traefik，供希望在不运行该栈的情况下使用该覆盖文件的工作站使用。它与该栈自带的 Traefik 互斥：两者都绑定宿主机 80 端口，并担任相同的发现角色。要求 Traefik v3.6 或更新版本，因为直至 v3.5.6 的各版本都锁定 Docker API 1.24 并忽略 `DOCKER_API_VERSION`，而 Docker Engine v29 的守护进程会拒绝该版本。
 
+`harness.ernestojpamajr.com` 为同一个服务再添一条来自互联网的路径。主机上的一条 cloudflared 入站规则把它转发到 Traefik 绑定在回环地址的 `web` 入口，而隧道是从主机内部访问该入口的，因此这条规则一旦存在，回环绑定便不再拦住任何人。该名称是向信任策略声明的，而不是在隧道处改写为内部名称：只要浏览器发送了 `Origin`，该策略就要求它与 `Host` 相等，而在 HTTPS 上浏览器总会发送，因此 `httpHostHeader` 改写会让每一次 `/api` 调用都返回 403。Cloudflare 在边缘终止 TLS，回源一段是回环上的普通 HTTP，因此本地签发的证书既不覆盖该名称，也无需覆盖。
+
 ### 经网关路由模型流量
 
 [`docker-compose.omni.yml`](../../../../docker-compose.omni.yml) 以独立的 Compose 项目运行 OpenAI 兼容网关 OmniRoute，[`docker-compose.omni-wire.yml`](../../../../docker-compose.omni-wire.yml) 则把三个 `dsh` 服务接入它的网络，使其模型流量终结于该网关而非公开 API。该网关独立成项目的理由与 infra 项目相同：它的存续时间长于任何一次 harness 运行，还要服务宿主机上的工具，因此 `make docker-down` 会让它继续运行。它的数据卷声明为 `external`，因为该卷保存着自动生成的签名密钥，每一个已签发的密钥都据此签出，换用新卷会让它们全部失效。
@@ -81,3 +83,5 @@ Status: implemented
 `api` 的 Profile 组合是手工枚举的，因此网关未来所需的新条目会表现为一次在加载期就指明缺失服务的失败，而不是一个坏掉的端点。这正是 Loader 所设计的响亮失败，但也意味着该组合要手工跟踪网关的依赖。
 
 模型流量有了第二个去向，而会话日志无从区分二者：经网关服务的请求与其他请求别无二致。该网关持有已签发的密钥并终结全部请求，其镜像却跟随 `:latest` 浮动，因此处在这个位置上的组件会在无人评审的情况下更新。它的仪表盘绑定回环地址，且在首次登录前不设认证，而 `OMNIROUTE_INITIAL_PASSWORD` 就放在 Agent 能从 `/workspace/.env` 读到的那份 `.env` 里，该网关又位于已接入服务所加入的网络上。
+
+该公开主机名唯一的身份认证是 Cloudflare Access，它配置在本仓库之外。compose 文件、信任策略与网关都不会检查它是否存在，因此这套部署的安全性依赖于一个它自身所有门禁都看不见的控制。
