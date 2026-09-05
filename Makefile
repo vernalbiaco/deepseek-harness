@@ -4,7 +4,36 @@
 	docker-build docker-web docker-headless docker-down docker-logs \
 	docker-raven docker-infra docker-infra-down docker-certs docker-certs-trust \
 	docker-patch-plugins docker-check-plugins \
-	docker-omni docker-omni-down docker-omni-web docker-omni-key docker-omni-check
+	docker-omni docker-omni-down docker-omni-web docker-omni-headless \
+	docker-omni-key docker-omni-check docker-all docker-all-down
+
+# The compose file set every bare `docker compose` below runs against. Overlay
+# modes extend the base rather than replacing it, and compose reads COMPOSE_FILE
+# from the environment, so exporting it here reaches the invocations nested in
+# shell loops too. Setting it explicitly replaces compose's implicit
+# docker-compose.override.yml discovery, which this repo does not use.
+#
+# Mode is a property of one make invocation. To point a target that has no
+# overlay variant of its own at a running overlay mode, pass the set in:
+#   COMPOSE_FILE=docker-compose.yml:docker-compose.omni-wire.yml make docker-patch-plugins
+# The separate-project files (infra, omni) keep their own -f flags, which take
+# precedence over COMPOSE_FILE.
+COMPOSE_PATH_SEPARATOR := :
+export COMPOSE_PATH_SEPARATOR
+COMPOSE_FILE ?= docker-compose.yml
+export COMPOSE_FILE
+
+OMNI_COMPOSE_FILE := docker-compose.yml:docker-compose.omni-wire.yml
+RAVEN_COMPOSE_FILE := docker-compose.yml:docker-compose.raven.yml
+
+# Both overlays at once, for docker-all. They are orthogonal: raven contributes
+# the Traefik labels, trusted hosts, and HTTPS routes, omni-wire the gateway
+# base URL and key. Compose normalizes a service's `networks` list into a map
+# before merging, so the two lists union rather than replace, and web and api
+# join default, hybrid_public, and omniroute together. raven precedes omni-wire
+# because the later file wins a scalar conflict, and only omni-wire sets
+# environment values that must survive.
+ALL_COMPOSE_FILE := docker-compose.yml:docker-compose.raven.yml:docker-compose.omni-wire.yml
 
 # Compose services whose dsh profile may carry a patched dsh-llm-local-token.
 # Each service boots the profile of the same name.
@@ -45,8 +74,9 @@ docker-build: ## Build the dsh CLI image
 docker-web: ## Run dsh web via docker compose (http://localhost:3080)
 	docker compose up web web-proxy
 
+docker-raven: COMPOSE_FILE := $(RAVEN_COMPOSE_FILE)
 docker-raven: ## Run web + API behind RavenStack's Traefik (harness.local.raven.com, harness-api.local.raven.com)
-	docker compose -f docker-compose.yml -f docker-compose.raven.yml up web web-proxy api api-proxy
+	docker compose up web web-proxy api api-proxy
 
 docker-certs: ## Mint the local CA and TLS certificate the HTTPS routes present
 	./docker/certs/generate.sh
@@ -70,15 +100,21 @@ docker-omni: ## Run the OmniRoute gateway + omniroute_network, detached (http://
 docker-omni-down: ## Remove the OmniRoute gateway and omniroute_network (stop wired services first)
 	docker compose -f docker-compose.omni.yml down
 
-docker-omni-web: ## Run web + API routed through OmniRoute (run 'make docker-omni' first)
-	docker compose -f docker-compose.yml -f docker-compose.omni-wire.yml up web web-proxy api api-proxy
+docker-omni-web docker-omni-headless docker-omni-check: COMPOSE_FILE := $(OMNI_COMPOSE_FILE)
 
-docker-omni-key: ## How to mint the OmniRoute API key that DEEPSEEK_API_KEY carries
+docker-omni-web: ## Run web + API routed through OmniRoute (run 'make docker-omni' first)
+	docker compose up web web-proxy api api-proxy
+
+docker-omni-headless: ## Run a headless dsh task through OmniRoute; usage: make docker-omni-headless ARGS="..."
+	docker compose run --rm headless $(ARGS)
+
+docker-omni-key: ## How to mint the OmniRoute API key that OMNIROUTE_API_KEY carries
 	@echo "1. open http://127.0.0.1:20128 and log in"
 	@echo "   password: OMNIROUTE_INITIAL_PASSWORD in .env"
 	@echo "2. connect a provider that serves the deepseek-* models dsh requests"
 	@echo "3. Dashboard -> Endpoints -> create a key"
-	@echo "4. set DEEPSEEK_API_KEY in .env, then rerun 'make docker-omni-web'"
+	@echo "4. set OMNIROUTE_API_KEY in .env, then rerun 'make docker-omni-web' or 'make docker-all'"
+	@echo "   DEEPSEEK_API_KEY stays the real DeepSeek key for the direct-mode targets"
 	@echo "5. verify with 'make docker-omni-check'"
 
 docker-omni-check: ## Check running harness services can actually reach the gateway
@@ -86,10 +122,40 @@ docker-omni-check: ## Check running harness services can actually reach the gate
 		if ! docker compose ps --status running --services 2>/dev/null | grep -qx "$$svc"; then \
 			echo "$$svc: not running"; continue; \
 		fi; \
-		docker compose exec -T "$$svc" node -e '''const b=process.env.DEEPSEEK_BASE_URL;if(!b){console.log(process.argv[1]+": DEEPSEEK_BASE_URL unset");process.exit(0)}fetch(b+"/models",{headers:{Authorization:"Bearer "+(process.env.DEEPSEEK_API_KEY||"")}}).then(r=>console.log(process.argv[1]+": HTTP "+r.status+(r.status===200?" ok":r.status===401?" reachable, but DEEPSEEK_API_KEY is unset or invalid":""))).catch(e=>console.log(process.argv[1]+": unreachable - "+e.message))''' "$$svc" 2>/dev/null || echo "$$svc: check failed"; \
+		docker compose exec -T "$$svc" node -e '''const b=process.env.DEEPSEEK_BASE_URL;if(!b){console.log(process.argv[1]+": DEEPSEEK_BASE_URL unset");process.exit(0)}fetch(b+"/models",{headers:{Authorization:"Bearer "+(process.env.DEEPSEEK_API_KEY||"")}}).then(r=>console.log(process.argv[1]+": HTTP "+r.status+(r.status===200?" ok":r.status===401?" reachable, but OMNIROUTE_API_KEY is unset or invalid":""))).catch(e=>console.log(process.argv[1]+": unreachable - "+e.message))''' "$$svc" 2>/dev/null || echo "$$svc: check failed"; \
 	done
 
-docker-headless: ## Run a headless dsh task; usage: make docker-headless ARGS="..."
+# Traefik and the OmniRoute gateway are separate compose projects, each owning
+# one of the external networks the harness services attach to, so no
+# `depends_on` can order them against those services. This target sequences the
+# three projects instead. Both prerequisites are `up -d` and idempotent, so
+# rerunning it against a running stack only reconciles what drifted.
+docker-all: COMPOSE_FILE := $(ALL_COMPOSE_FILE)
+docker-all: ## Run the whole stack: Traefik + OmniRoute gateway + web and API wired through both
+	@test -f certs/harness.crt || ./docker/certs/generate.sh
+	@$(MAKE) --no-print-directory docker-infra
+	@$(MAKE) --no-print-directory docker-omni
+	@# The gateway starts before this check on purpose: OMNIROUTE_API_KEY is
+	@# minted from the dashboard the previous step just started, so checking
+	@# first would leave a first-time user with nothing to mint from. Compose's
+	@# own `:?` failure names the variable and the target that explains it; this
+	@# adds only the fact that the dashboard is now reachable.
+	@docker compose config -q || { \
+		echo "the gateway is up at http://127.0.0.1:20128, so the key can be minted now; rerun 'make docker-all' once .env carries it"; \
+		exit 1; }
+	docker compose up web web-proxy api api-proxy
+
+# Reverse order: an external network cannot be removed while containers are
+# still attached to it. The harness services come down under the base file
+# alone, because `down` selects by compose project rather than by file set, and
+# reading the omni-wire overlay here would fail interpolation for exactly the
+# user who never minted a key.
+docker-all-down: ## Stop the whole stack: harness services, then the gateway and Traefik
+	docker compose down
+	@$(MAKE) --no-print-directory docker-omni-down
+	@$(MAKE) --no-print-directory docker-infra-down
+
+docker-headless: ## Run a headless dsh task against the public API; usage: make docker-headless ARGS="..."
 	docker compose run --rm headless $(ARGS)
 
 docker-down: ## Stop and remove docker compose services

@@ -71,6 +71,25 @@ Web UI 需要浏览器的安全上下文，而纯 HTTP 只会把它授予 `127.0
 
 挂载 Claude Code 与 Codex 的凭据目录后，[`dsh-llm-local-token`](https://github.com/tianxia--/dsh-llm-local-token) 即可将这些订阅作为模型路由提供。这些挂载为可读写：插件会在令牌临近过期时刷新，并写回宿主机 CLI 读取的同一个文件。[`patches/dsh-llm-local-token/`](patches/dsh-llm-local-token/README.md) 收录了该版本在 Linux 上所需的修复，`make docker-patch-plugins` 可在任何一次重新安装后重新应用它们。
 
+[`docker-compose.omni.yml`](docker-compose.omni.yml) 以独立的 Compose 项目运行 OpenAI 兼容网关 OmniRoute，而 [`docker-compose.omni-wire.yml`](docker-compose.omni-wire.yml) 会把各 harness 服务接入它的网络，使这些服务的模型流量发往该网关而非公开的 DeepSeek API。该网关之所以独立成项目，是因为它的存续时间长于任何一次 harness 运行，还要同时服务宿主机上的工具，因此 `make docker-down` 会让它继续运行；`make docker-omni-down` 才会在已接入的服务停止后停掉它。
+
+```sh
+make docker-omni                                         # gateway at http://127.0.0.1:20128
+make docker-omni-key                                     # how to mint the key it accepts
+make docker-omni-web                                     # web + API routed through the gateway
+make docker-omni-headless ARGS='"summarize the README"'  # one task through the gateway
+make docker-omni-check                                   # confirm the services reach it
+make docker-all                                          # Traefik, gateway, and both services
+```
+
+仪表盘绑定宿主机回环地址，且在首次使用 `OMNIROUTE_INITIAL_PASSWORD` 登录之前不设身份认证。在其中签发的密钥以 `OMNIROUTE_API_KEY` 写入 `.env`，覆盖文件会在已接入的服务内部把它映射到 `DEEPSEEK_API_KEY`；而 `DEEPSEEK_API_KEY` 本身仍保留真实的 DeepSeek 密钥，因为直连模式的目标读取的是同一个 `.env`。`make docker-omni-key` 会打印相应步骤，`make docker-omni-check` 则报告运行中的服务能否访问该网关。
+
+覆盖文件在启动环境而非 `.env` 中设置 `DEEPSEEK_BASE_URL`，并且只要有 `.env` 文件设置了它，`dsh` 就会拒绝启动：源码检出以绑定挂载置于 `/workspace`，因此项目内的文件不得能够改变 Agent 访问网络的去向。
+
+网关镜像跟随 `:latest` 浮动，因此这个持有已签发密钥并终结全部模型请求的组件，会在无人评审的情况下更新。
+
+每种模式的目标各自携带一套 Compose 文件集合。若要让没有对应模式变体的目标（例如 `make docker-patch-plugins`）作用于已经运行在网关模式或 Traefik 模式下的服务，就需要通过 `COMPOSE_FILE` 把该集合传入。
+
 ## 社区与支持
 
 - 通过 [GitHub Discussions](https://github.com/deepseek-ai/deepseek-harness/discussions) 提交反馈或 bug 报告。
