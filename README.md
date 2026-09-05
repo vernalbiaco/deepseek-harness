@@ -67,6 +67,25 @@ Reaching that surface from elsewhere means mounting [`@deepseek-ai/dsh-api-key-a
 
 Mounting the Claude Code and Codex credential directories lets [`dsh-llm-local-token`](https://github.com/tianxia--/dsh-llm-local-token) offer those subscriptions as model routes. The mounts are read-write because the plugin refreshes each token near expiry and writes it back to the file the host CLI reads. [`patches/dsh-llm-local-token/`](patches/dsh-llm-local-token/README.md) carries the fixes that release requires on Linux, and `make docker-patch-plugins` reapplies them after any reinstall.
 
+[`docker-compose.omni.yml`](docker-compose.omni.yml) runs OmniRoute, an OpenAI-compatible gateway, as its own Compose project, and [`docker-compose.omni-wire.yml`](docker-compose.omni-wire.yml) joins the harness services to its network so their model traffic reaches the gateway instead of the public DeepSeek API. The gateway is a separate project because it outlives any one harness run and serves host-side tools too, so `make docker-down` leaves it running; `make docker-omni-down` stops it once the wired services are down.
+
+```sh
+make docker-omni                                         # gateway at http://127.0.0.1:20128
+make docker-omni-key                                     # how to mint the key it accepts
+make docker-omni-web                                     # web + API routed through the gateway
+make docker-omni-headless ARGS='"summarize the README"'  # one task through the gateway
+make docker-omni-check                                   # confirm the services reach it
+make docker-all                                          # Traefik, gateway, and both services
+```
+
+The dashboard binds the host loopback and is unauthenticated until the first login with `OMNIROUTE_INITIAL_PASSWORD`. A key minted there goes in `.env` as `OMNIROUTE_API_KEY`, which the overlay maps onto `DEEPSEEK_API_KEY` inside the wired services; `DEEPSEEK_API_KEY` itself stays the real DeepSeek key, because the direct-mode targets read the same `.env`. `make docker-omni-key` prints the steps, and `make docker-omni-check` reports whether the running services reach the gateway.
+
+The overlay sets `DEEPSEEK_BASE_URL` in the launching environment rather than in `.env`, and `dsh` refuses to boot when a `.env` file sets it: the checkout is bind-mounted at `/workspace`, so a project-local file must not be able to redirect where the agent reaches the network.
+
+The gateway image floats on `:latest`, so the component that holds the minted key and terminates every model request updates without review.
+
+Each mode's targets carry their own Compose file set. Pointing a target that has no mode variant — `make docker-patch-plugins`, say — at services already running in gateway or Traefik mode means passing that set in as `COMPOSE_FILE`.
+
 ## Community and support
 
 - Submit feedback or bug reports through [GitHub Discussions](https://github.com/deepseek-ai/deepseek-harness/discussions).

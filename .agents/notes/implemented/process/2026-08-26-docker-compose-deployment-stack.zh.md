@@ -30,6 +30,16 @@ Status: implemented
 
 该覆盖文件以 `external` 方式使用 `hybrid_public_network`，因此当拥有该网络的栈未运行时，Compose 会拒绝启动。[`docker-compose.infra.yml`](../../../../docker-compose.infra.yml) 是一个独立的 Compose 项目，它创建该网络并在其上提供一个绑定回环地址的 Traefik，供希望在不运行该栈的情况下使用该覆盖文件的工作站使用。它与该栈自带的 Traefik 互斥：两者都绑定宿主机 80 端口，并担任相同的发现角色。要求 Traefik v3.6 或更新版本，因为直至 v3.5.6 的各版本都锁定 Docker API 1.24 并忽略 `DOCKER_API_VERSION`，而 Docker Engine v29 的守护进程会拒绝该版本。
 
+### 经网关路由模型流量
+
+[`docker-compose.omni.yml`](../../../../docker-compose.omni.yml) 以独立的 Compose 项目运行 OpenAI 兼容网关 OmniRoute，[`docker-compose.omni-wire.yml`](../../../../docker-compose.omni-wire.yml) 则把三个 `dsh` 服务接入它的网络，使其模型流量终结于该网关而非公开 API。该网关独立成项目的理由与 infra 项目相同：它的存续时间长于任何一次 harness 运行，还要服务宿主机上的工具，因此 `make docker-down` 会让它继续运行。它的数据卷声明为 `external`，因为该卷保存着自动生成的签名密钥，每一个已签发的密钥都据此签出，换用新卷会让它们全部失效。
+
+`DEEPSEEK_BASE_URL` 经由 Compose 的 `environment:` 而非 `.env` 抵达各服务。`dsh` 只接受来自启动环境的该变量，而源码检出以绑定挂载置于 `/workspace`，因此 `./.env` 是 Agent 自己就能编辑的文件；若允许它改变模型端点，就等于把网络可达范围交给 Agent 自己决定。Compose 的 `environment:` 属于启动环境，因而满足该守卫。
+
+网关只接受由其自身仪表盘签发的密钥，公开 API 只接受真实的 DeepSeek 密钥，因此密钥随模式而变，而 `.env` 不变。`.env` 中 `DEEPSEEK_API_KEY` 供直连模式使用，`OMNIROUTE_API_KEY` 供网关使用，覆盖文件在已接入的服务内部把后者映射为前者，这一点成立是因为 Compose 在 `env_file:` 之后才解析 `environment:`。两个网关变量都以 `:?` 声明为必填，因此缺失或为空都会在 `config` 阶段指名该变量并失败，而不是等到第一次模型请求。
+
+模式是一套 Compose 文件集合的属性，因此每一个作用于运行中服务的 `make` 目标都针对同一套集合运行。`COMPOSE_FILE` 承载它：默认是基础文件，覆盖模式的目标各自扩展它，并将其导出，使目标内层 shell 循环中的调用也能继承。没有对应模式变体的目标 `make docker-patch-plugins` 改为从环境中取得该集合。`make docker-all` 同时组合两个覆盖文件；它们互相正交，且 Compose 会合并而非替换 `networks` 列表。
+
 ### 第三方插件补丁
 
 [`patches/dsh-llm-local-token/`](../../../../patches/dsh-llm-local-token/README.md) 收录某第三方插件在锁定版本上的已打补丁模块，仅由 `make docker-patch-plugins` 应用。它们不是 pnpm 的 `patchedDependencies`：该插件在运行时被安装进 `dsh-home` 卷内的某个 Profile，任何安装期机制都触及不到那里。
@@ -56,12 +66,18 @@ Status: implemented
 
 **Fork 该插件并纳入仓库，或通过 pnpm 固定它。** Fork 意味着接管一个上游仍在维护的包，而 `patchedDependencies` 触及不到运行时安装进卷中的包。把模块覆盖到已安装的包上，才是与该包实际所在位置相匹配的机制，代价是任何一次重新安装都会静默地把它还原。
 
+**用 `DEEPSEEK_API_KEY` 承载已签发的网关密钥。** 用一个变量表示「模型端点接受的密钥」读起来更简单，应用也只读取这一个名字。但两个端点接受不同的密钥，两种模式却读取同一份 `.env`，于是单一名字会让两种模式互相破坏：存入已签发密钥会让所有直连模式的目标失效，换回真实密钥又会让网关失效。在覆盖文件中把另一个名字映射到它，才能让一份 `.env` 对两种模式都正确。
+
+**让每个覆盖模式的目标各自传入 `-f` 参数。** 这是改动更小的安排，也把文件集合留在配方里可见。但它同时让其余所有目标（停机、日志、打补丁、各项检查）都只针对基础文件运行，于是一条指向运行在覆盖模式下的服务的命令，读到的配置与启动该服务时的并不相同，而对其依赖执行 `up` 还可能把该服务重建成不带覆盖的样子。
+
 ## Consequences
 
 评估者无需本地工具链即可运行 `make docker-build && make docker-web`，程序则可针对 `api` 服务通过 HTTP 驱动 agent。Profile 状态、已安装插件与会话都能在镜像重新构建后留存。默认情况下没有任何东西可从宿主机之外访问；发布到回环地址之外始终是一次刻意的改动，README 说明了这样做授予了什么。
 
-有两条操作规则必须靠记忆遵守，因为没有任何机制强制它们。重启 `dsh` 服务时必须重建其边车。以及在对该包执行任何安装或更新之后必须重新应用插件补丁，`make docker-check-plugins` 让这一点可被检查。两处修复都应回到上游，在那里落地后即可让补丁目录退场。
+有三条操作规则必须靠记忆遵守，因为没有任何机制强制它们。重启 `dsh` 服务时必须重建其边车。在对该包执行任何安装或更新之后必须重新应用插件补丁，`make docker-check-plugins` 让这一点可被检查。以及作用于运行中服务的目标必须携带该服务的 Compose 文件集合，否则它读到的配置与启动该服务时的并不相同。两处修复都应回到上游，在那里落地后即可让补丁目录退场。
 
 这些 Traefik 主机名只在 `/etc/hosts` 把它们映射到回环地址时才能解析，与其他 `*.local.raven.com` 名称一样；若没有该条目，这些名称可能被公网解析，请求随之离开本机。`api` Profile 的 `trustedHosts` 位于卷中而非仓库中，因此它与插件补丁有着相同的失效方式：重建该卷会丢弃它，相应路由将持续返回 403，直到它被恢复。
 
 `api` 的 Profile 组合是手工枚举的，因此网关未来所需的新条目会表现为一次在加载期就指明缺失服务的失败，而不是一个坏掉的端点。这正是 Loader 所设计的响亮失败，但也意味着该组合要手工跟踪网关的依赖。
+
+模型流量有了第二个去向，而会话日志无从区分二者：经网关服务的请求与其他请求别无二致。该网关持有已签发的密钥并终结全部请求，其镜像却跟随 `:latest` 浮动，因此处在这个位置上的组件会在无人评审的情况下更新。它的仪表盘绑定回环地址，且在首次登录前不设认证，而 `OMNIROUTE_INITIAL_PASSWORD` 就放在 Agent 能从 `/workspace/.env` 读到的那份 `.env` 里，该网关又位于已接入服务所加入的网络上。
