@@ -412,6 +412,14 @@ export interface LaunchOptions {
    * 127.0.0.1; a non-resolving authority fails before Host trust is exercised.
    */
   remoteAuthority?: string
+  /**
+   * Widen the configuration plane to the trusted authority: patches the
+   * connection row's fence and the API gateway's `host.describe` report
+   * together, exactly as `dsh web --configuration-authority trusted-host`
+   * would. Requires {@link remoteAuthority}; the loopback default needs no
+   * option.
+   */
+  configurationAuthority?: 'trusted-host'
   /** Reuse an existing harness home so a second Host can verify user settings across origins. */
   harnessHome?: string
 }
@@ -608,7 +616,19 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
     { id: 'web-runtime', config: { openBrowser: false, printUrl: false, surfaceContext } },
     ...options.remoteAuthority === undefined
       ? []
-      : [{ id: 'connection', config: { trustedHosts: [options.remoteAuthority] } }],
+      : [{
+        id: 'connection',
+        config: {
+          trustedHosts: [options.remoteAuthority],
+          configurationAuthority: options.configurationAuthority ?? 'loopback',
+        },
+      }],
+    // The gateway only relays the fence; both rows must agree or the page
+    // refuses (or is refused) — the same pairing the shipped patch expresses
+    // through one webStartup value.
+    ...options.configurationAuthority === undefined
+      ? []
+      : [{ id: 'api-gateway', config: { configurationAuthority: options.configurationAuthority } }],
     { id: 'settings', config: { dshHome: harnessHome } },
     { id: 'credentials', config: { dshHome: harnessHome } },
     // The shipped directory-picker row is the -auto chooser, which resolves

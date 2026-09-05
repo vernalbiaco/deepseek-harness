@@ -33,7 +33,7 @@ The shipped apps own these command lines:
 
 | Profile | Arguments |
 |---|---|
-| `web` | `--host`, `--port`, repeatable `--trusted-host`, `--no-open` |
+| `web` | `--host`, `--port`, repeatable `--trusted-host`, `--configuration-authority`, `--no-open` |
 | `headless` | the task text, as the positional argument |
 | `sdk` | no options; stdio carries the JSON-RPC protocol |
 | `sdk-minimal` | no options; stdio carries the same JSON-RPC protocol |
@@ -76,7 +76,7 @@ Git-hosted plugins that ship sources build during install through their `prepare
 
 ## Web alias
 
-`dsh web` is a hardcoded alias for `--profile web`; the flags after it belong to the web app, whose ordinary bundle provider parses them. `--host` and `--port` override the composed values of the rows that carry them, repeatable `--trusted-host` contributes invocation authorities through `ctx.webRuntime.trustedHosts` (a deployment expression concatenates its own authorities), and `--no-open` disables the default-browser handoff for this invocation. The client-plugin HMR receiver is always mounted and stays idle until a separate `pnpm run dev:web` watcher rebuilds client bundles.
+`dsh web` is a hardcoded alias for `--profile web`; the flags after it belong to the web app, whose ordinary bundle provider parses them. `--host` and `--port` override the composed values of the rows that carry them, repeatable `--trusted-host` contributes invocation authorities through `ctx.webRuntime.trustedHosts` (a deployment expression concatenates its own authorities), `--configuration-authority trusted-host` admits those authorities to Settings, credentials, and preset management (the default `loopback` keeps them loopback-only; the flag is refused without a `--trusted-host`, and it is not a login — the ingress in front of those names must supply one), and `--no-open` disables the default-browser handoff for this invocation. The client-plugin HMR receiver is always mounted and stays idle until a separate `pnpm run dev:web` watcher rebuilds client bundles.
 
 ```sh
 dsh web
