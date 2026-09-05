@@ -3,7 +3,8 @@
 .PHONY: help install build clean typecheck lint test test-coverage hygiene \
 	docker-build docker-web docker-headless docker-down docker-logs \
 	docker-raven docker-infra docker-infra-down docker-certs docker-certs-trust \
-	docker-patch-plugins docker-check-plugins
+	docker-patch-plugins docker-check-plugins \
+	docker-omni docker-omni-down docker-omni-web docker-omni-key docker-omni-check
 
 # Compose services whose dsh profile may carry a patched dsh-llm-local-token.
 # Each service boots the profile of the same name.
@@ -62,6 +63,31 @@ docker-infra: ## Run the standalone Traefik + hybrid_public_network stand-in for
 
 docker-infra-down: ## Remove the standalone infra Traefik and its network (stop raven services first)
 	docker compose -f docker-compose.infra.yml down
+
+docker-omni: ## Run the OmniRoute gateway + omniroute_network, detached (http://localhost:20128)
+	docker compose -f docker-compose.omni.yml up -d
+
+docker-omni-down: ## Remove the OmniRoute gateway and omniroute_network (stop wired services first)
+	docker compose -f docker-compose.omni.yml down
+
+docker-omni-web: ## Run web + API routed through OmniRoute (run 'make docker-omni' first)
+	docker compose -f docker-compose.yml -f docker-compose.omni-wire.yml up web web-proxy api api-proxy
+
+docker-omni-key: ## How to mint the OmniRoute API key that DEEPSEEK_API_KEY carries
+	@echo "1. open http://127.0.0.1:20128 and log in"
+	@echo "   password: OMNIROUTE_INITIAL_PASSWORD in .env"
+	@echo "2. connect a provider that serves the deepseek-* models dsh requests"
+	@echo "3. Dashboard -> Endpoints -> create a key"
+	@echo "4. set DEEPSEEK_API_KEY in .env, then rerun 'make docker-omni-web'"
+	@echo "5. verify with 'make docker-omni-check'"
+
+docker-omni-check: ## Check running harness services can actually reach the gateway
+	@for svc in web api; do \
+		if ! docker compose ps --status running --services 2>/dev/null | grep -qx "$$svc"; then \
+			echo "$$svc: not running"; continue; \
+		fi; \
+		docker compose exec -T "$$svc" node -e '''const b=process.env.DEEPSEEK_BASE_URL;if(!b){console.log(process.argv[1]+": DEEPSEEK_BASE_URL unset");process.exit(0)}fetch(b+"/models",{headers:{Authorization:"Bearer "+(process.env.DEEPSEEK_API_KEY||"")}}).then(r=>console.log(process.argv[1]+": HTTP "+r.status+(r.status===200?" ok":r.status===401?" reachable, but DEEPSEEK_API_KEY is unset or invalid":""))).catch(e=>console.log(process.argv[1]+": unreachable - "+e.message))''' "$$svc" 2>/dev/null || echo "$$svc: check failed"; \
+	done
 
 docker-headless: ## Run a headless dsh task; usage: make docker-headless ARGS="..."
 	docker compose run --rm headless $(ARGS)

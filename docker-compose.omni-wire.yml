@@ -1,0 +1,47 @@
+# Joins the harness services to OmniRoute's network so they can resolve the
+# gateway by service name.
+#
+# Start docker-compose.omni.yml first: it owns omniroute_network, and compose
+# refuses to start when an `external: true` network is absent.
+#
+# DEEPSEEK_BASE_URL is set here rather than in .env on purpose. dsh guards it
+# (with DEEPSEEK_SEARCH_BASE_URL) as launching-environment-only and refuses to
+# boot when a .env file sets it: the repo is bind-mounted at /workspace, so
+# ./.env is also /workspace/.env, a project-local file that must not be able to
+# redirect where the agent reaches the network. Compose's `environment:` IS the
+# launching environment, so setting it here satisfies the guard.
+#
+# DEEPSEEK_API_KEY is not guarded and stays in .env with the other secrets.
+#
+# Services keep their default-network membership: listing a network here adds
+# to it rather than replacing it, so web-proxy/api-proxy (which share their
+# service's netns) and inter-service traffic are unaffected.
+#
+# Usage:
+#   make docker-omni-web
+services:
+  web:
+    environment:
+      DEEPSEEK_BASE_URL: http://omniroute:20128/v1
+    networks:
+      - default
+      - omniroute
+
+  api:
+    environment:
+      DEEPSEEK_BASE_URL: http://omniroute:20128/v1
+    networks:
+      - default
+      - omniroute
+
+  headless:
+    environment:
+      DEEPSEEK_BASE_URL: http://omniroute:20128/v1
+    networks:
+      - default
+      - omniroute
+
+networks:
+  omniroute:
+    external: true
+    name: omniroute_network
