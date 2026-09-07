@@ -97,7 +97,7 @@ async function * idle<F>(signal: AbortSignal): AsyncGenerator<RpcRequest<F>> {
 /**
  * The composition's `apiProxy` row. It serves only what these arms reach:
  * `session.list` (the ordinary method), `credentials.describe` (a
- * `PRIVILEGED_METHODS` member, answered from the real credential seam), and
+ * `CONFIGURATION_METHODS` member, answered from the real credential seam), and
  * the two idle downlink sources. Registered under the `apiProxy` name, so
  * connection resolves it exactly as it resolves the shipped gateway.
  */

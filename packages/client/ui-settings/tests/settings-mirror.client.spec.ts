@@ -73,6 +73,17 @@ describe('SettingsDescribeMirror', () => {
     expect(mirror.getSnapshot().view?.namespaces).toHaveLength(1)
   })
 
+  it('reports a non-Error rejection by its string form', async () => {
+    // A carrier can reject with whatever the transport threw; the failure
+    // field is always a string so the surfaces can render it.
+    const describeCall = vi.fn().mockRejectedValueOnce('socket closed').mockResolvedValue(described([view('theme')]))
+    const mirror = new SettingsDescribeMirror({ settings: { describe: describeCall } } as never)
+    await mirror.ensure()
+    expect(mirror.getSnapshot()).toEqual({ status: 'idle', view: undefined, error: 'socket closed' })
+    await mirror.ensure()
+    expect(mirror.getSnapshot().status).toBe('ready')
+  })
+
   it('returns to idle after a first read that never succeeded, so ensure retries', async () => {
     const describeCall = vi.fn()
       .mockRejectedValueOnce(new Error('offline'))
@@ -94,13 +105,49 @@ describe('SettingsDescribeMirror', () => {
     expect(describeCall).toHaveBeenCalledTimes(1)
   })
 
-  it('memory persistence is terminally unavailable and never touches the wire', async () => {
+  it('memory persistence is unavailable and never touches the wire', async () => {
     const describeCall = vi.fn()
     const mirror = new SettingsDescribeMirror(ctxWith(describeCall), 'memory')
     await mirror.ensure()
     await mirror.load()
     expect(mirror.getSnapshot()).toEqual({ status: 'unavailable', view: undefined, error: null })
     expect(describeCall).not.toHaveBeenCalled()
+  })
+
+  it('pending reports loading without a read, then settles as refused or admitted', async () => {
+    const describeCall = vi.fn().mockResolvedValue(described([view('theme')]))
+    const refused = new SettingsDescribeMirror({ settings: { describe: describeCall } } as never, 'pending')
+    expect(refused.getSnapshot()).toEqual({ status: 'loading', view: undefined, error: null })
+    await refused.ensure()
+    await refused.load()
+    expect(describeCall).not.toHaveBeenCalled()
+    refused.refuse()
+    expect(refused.getSnapshot().status).toBe('unavailable')
+    // Refusal is final for the page; an admission settles the other way.
+    refused.refuse()
+    const admitted = new SettingsDescribeMirror({ settings: { describe: describeCall } } as never, 'pending')
+    admitted.enable()
+    admitted.refuse()
+    await admitted.ensure()
+    expect(admitted.getSnapshot().status).toBe('ready')
+    expect(describeCall).toHaveBeenCalledTimes(1)
+  })
+
+  it('enable leaves memory mode idempotently, so the next ensure reads once', async () => {
+    const describeCall = vi.fn().mockResolvedValue(described([view('theme')]))
+    const mirror = new SettingsDescribeMirror({ settings: { describe: describeCall } } as never, 'memory')
+    const published: string[] = []
+    mirror.subscribe(() => { published.push(mirror.getSnapshot().status) })
+    mirror.enable()
+    expect(mirror.getSnapshot()).toEqual({ status: 'idle', view: undefined, error: null })
+    // A reconnect republishing the same description enables again; a host-mode
+    // mirror ignores it rather than resetting a held document to idle.
+    mirror.enable()
+    await mirror.ensure()
+    mirror.enable()
+    expect(mirror.getSnapshot()).toMatchObject({ status: 'ready', view: { namespaces: [view('theme')] } })
+    expect(describeCall).toHaveBeenCalledTimes(1)
+    expect(published).toEqual(['idle', 'loading', 'ready'])
   })
 
   it('acceptView folds one write answer into the held view without a wire read', async () => {

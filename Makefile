@@ -5,7 +5,7 @@
 	docker-raven docker-infra docker-infra-down docker-certs docker-certs-trust \
 	docker-patch-plugins docker-check-plugins \
 	docker-omni docker-omni-down docker-omni-web docker-omni-headless \
-	docker-omni-key docker-omni-check docker-all docker-all-down
+	docker-omni-key docker-omni-check docker-all docker-all-omni docker-all-down
 
 # The compose file set every bare `docker compose` below runs against. Overlay
 # modes extend the base rather than replacing it, and compose reads COMPOSE_FILE
@@ -26,10 +26,10 @@ export COMPOSE_FILE
 OMNI_COMPOSE_FILE := docker-compose.yml:docker-compose.omni-wire.yml
 RAVEN_COMPOSE_FILE := docker-compose.yml:docker-compose.raven.yml
 
-# Both overlays at once, for docker-all. They are orthogonal: raven contributes
-# the Traefik labels, trusted hosts, and HTTPS routes, omni-wire the gateway
-# base URL and key. Compose normalizes a service's `networks` list into a map
-# before merging, so the two lists union rather than replace, and web and api
+# Both overlays at once, for docker-all-omni. They are orthogonal: raven
+# contributes the Traefik labels, trusted hosts, and HTTPS routes, omni-wire the
+# gateway base URL and key. Compose normalizes a service's `networks` list into a
+# map before merging, so the two lists union rather than replace, and web and api
 # join default, hybrid_public, and omniroute together. raven precedes omni-wire
 # because the later file wins a scalar conflict, and only omni-wire sets
 # environment values that must survive.
@@ -118,7 +118,7 @@ docker-omni-key: ## How to mint the OmniRoute API key that OMNIROUTE_API_KEY car
 	@echo "   password: OMNIROUTE_INITIAL_PASSWORD in .env"
 	@echo "2. connect a provider that serves the deepseek-* models dsh requests"
 	@echo "3. Dashboard -> API Keys -> Create API Key (the key is shown only once)"
-	@echo "4. set OMNIROUTE_API_KEY in .env, then rerun 'make docker-omni-web' or 'make docker-all'"
+	@echo "4. set OMNIROUTE_API_KEY in .env, then rerun 'make docker-omni-web' or 'make docker-all-omni'"
 	@echo "   DEEPSEEK_API_KEY stays the real DeepSeek key for the direct-mode targets"
 	@echo "5. verify with 'make docker-omni-check'"
 
@@ -130,13 +130,25 @@ docker-omni-check: ## Check running harness services can actually reach the gate
 		docker compose exec -T "$$svc" node -e '''const b=process.env.DEEPSEEK_BASE_URL;if(!b){console.log(process.argv[1]+": DEEPSEEK_BASE_URL unset");process.exit(0)}fetch(b+"/models",{headers:{Authorization:"Bearer "+(process.env.DEEPSEEK_API_KEY||"")}}).then(r=>console.log(process.argv[1]+": HTTP "+r.status+(r.status===200?" ok":r.status===401?" reachable, but OMNIROUTE_API_KEY is unset or invalid":""))).catch(e=>console.log(process.argv[1]+": unreachable - "+e.message))''' "$$svc" 2>/dev/null || echo "$$svc: check failed"; \
 	done
 
-# Traefik and the OmniRoute gateway are separate compose projects, each owning
+# The default full stack: RavenStack's Traefik in front of web and API, with
+# DeepSeek going straight to the public API. The OmniRoute gateway is opt-in
+# (docker-all-omni); this target neither starts it nor wires the services to it,
+# so a deployment that never configured OmniRoute brings the stack up cleanly and
+# each service's DeepSeek key is set from the web Models page rather than injected.
+docker-all: COMPOSE_FILE := $(RAVEN_COMPOSE_FILE)
+docker-all: ## Run the full stack: Traefik + web and API, DeepSeek direct to the public API
+	@test -f certs/harness.crt || ./docker/certs/generate.sh
+	@$(MAKE) --no-print-directory docker-infra
+	docker compose up web web-proxy api api-proxy
+
+# Gateway variant of docker-all: additionally route model traffic through
+# OmniRoute. Traefik and the gateway are separate compose projects, each owning
 # one of the external networks the harness services attach to, so no
 # `depends_on` can order them against those services. This target sequences the
 # three projects instead. Both prerequisites are `up -d` and idempotent, so
 # rerunning it against a running stack only reconciles what drifted.
-docker-all: COMPOSE_FILE := $(ALL_COMPOSE_FILE)
-docker-all: ## Run the whole stack: Traefik + OmniRoute gateway + web and API wired through both
+docker-all-omni: COMPOSE_FILE := $(ALL_COMPOSE_FILE)
+docker-all-omni: ## Run the full stack with model traffic routed through the OmniRoute gateway
 	@test -f certs/harness.crt || ./docker/certs/generate.sh
 	@$(MAKE) --no-print-directory docker-infra
 	@$(MAKE) --no-print-directory docker-omni
@@ -146,7 +158,7 @@ docker-all: ## Run the whole stack: Traefik + OmniRoute gateway + web and API wi
 	@# own `:?` failure names the variable and the target that explains it; this
 	@# adds only the fact that the dashboard is now reachable.
 	@docker compose config -q || { \
-		echo "the gateway is up at http://127.0.0.1:20128, so the key can be minted now; rerun 'make docker-all' once .env carries it"; \
+		echo "the gateway is up at http://127.0.0.1:20128, so the key can be minted now; rerun 'make docker-all-omni' once .env carries it"; \
 		exit 1; }
 	docker compose up web web-proxy api api-proxy
 

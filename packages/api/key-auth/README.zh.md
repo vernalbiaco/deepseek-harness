@@ -4,7 +4,7 @@
 
 `/api` 传输层的 API 密钥准入门（admission gate）。它在 [`dsh-client-connection`](../../client/connection/README.md) 的 `ApiGateRegistry`（[gates](../../client/connection/src/gates.ts)）上注册一个门：放行携带已配置 bearer 密钥的调用方，拒绝其余所有调用方；它绝不会授予特权方法平面。
 
-当请求的 `Authorization` 头携带 `Bearer <secret>`，且 `<secret>` 与某个已配置密钥解析出的凭据匹配（以 `timingSafeEqual` 比较）时，该请求获得放行。匹配成功时该门返回 `{ allow: true, principal: <key name>, privileged: false }`;`privileged` 是无条件的、不可配置的,因此没有任何配置能让持密钥调用方获得特权。未携带 bearer 凭据的请求与携带无法识别凭据的请求,两者都应答 `401`。调用 `PRIVILEGED_METHODS` 中成员的请求(设置、凭据、预设编辑等配置平面方法;参见 [gates.ts](../../client/connection/src/gates.ts) 与 `dsh-client-connection` 的 `index.ts`)需要同时满足聚合结果 `privileged: true` 与通过 loopback-same-origin 信任栅栏这两个条件;仅凭本门返回的 `privileged: false`,无论请求来自何处都会应答 `403`——这正是设计所在:否则一个终止于 loopback 的转发请求就会仅凭传输层通过信任栅栏。由组合决定——即哪个 profile 挂载了本插件,以及该 profile 是否同时放宽了信任栅栏——谁能够到达配置平面;没有任何基于单次请求的检测能区分一个被转发的请求和一个本地请求。
+当请求的 `Authorization` 头携带 `Bearer <secret>`，且 `<secret>` 与某个已配置密钥解析出的凭据匹配（以 `timingSafeEqual` 比较）时，该请求获得放行。匹配成功时该门返回 `{ allow: true, principal: <key name>, privileged: false }`;`privileged` 是无条件的、不可配置的,因此没有任何配置能让持密钥调用方获得特权。未携带 bearer 凭据的请求与携带无法识别凭据的请求,两者都应答 `401`。调用 `CONFIGURATION_METHODS` 或 `DESKTOP_METHODS` 中成员的请求(设置、凭据、预设管理、原生对话框——每组各自再过一道更窄的栅栏,桌面组为回环,配置面为 `configurationAuthority` 名单;参见 [gates.ts](../../client/connection/src/gates.ts) 与 `dsh-client-connection` 的 `index.ts`)需要同时满足聚合结果 `privileged: true` 与通过 loopback-same-origin 信任栅栏这两个条件;仅凭本门返回的 `privileged: false`,无论请求来自何处都会应答 `403`——这正是设计所在:否则一个终止于 loopback 的转发请求就会仅凭传输层通过信任栅栏。由组合决定——即哪个 profile 挂载了本插件,以及该 profile 是否同时放宽了信任栅栏——谁能够到达配置平面;没有任何基于单次请求的检测能区分一个被转发的请求和一个本地请求。
 
 ## 配置
 

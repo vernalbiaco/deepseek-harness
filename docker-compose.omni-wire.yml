@@ -15,9 +15,10 @@
 # accepts only a key minted from its own dashboard, and the public API accepts
 # only a real DeepSeek key. Both modes read the same .env, so the two keys need
 # separate names there. .env keeps DEEPSEEK_API_KEY for direct mode; this
-# overlay maps OMNIROUTE_API_KEY onto it for gateway mode. Compose resolves
-# `environment:` after `env_file:`, so the mapping wins inside these services
-# and leaves the direct-mode targets reading the unmodified .env value.
+# overlay maps OMNIROUTE_API_KEY onto it for gateway mode. A later Compose
+# file's `environment:` entry overrides the base file's entry of the same name,
+# so the mapping wins inside these services and leaves the direct-mode targets
+# reading the unmodified .env value.
 #
 # Services keep their default-network membership: listing a network here adds
 # to it rather than replacing it, so web-proxy/api-proxy (which share their
