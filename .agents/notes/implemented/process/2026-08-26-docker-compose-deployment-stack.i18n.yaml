@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/process/2026-08-26-docker-compose-deployment-stack.md
-2026-08-26-docker-compose-deployment-stack.md: e3622061bfbf2edec379f3c082581a1e37178b57
-2026-08-26-docker-compose-deployment-stack.zh.md: 186d8535a9d987c64dc4b8f9c50e04f69fa317be
+2026-08-26-docker-compose-deployment-stack.md: c2518229cc62d2716753aeccb6c0c4ee56b8a627
+2026-08-26-docker-compose-deployment-stack.zh.md: 24e66e6546c06752323b5b5f0198f5b55783ccae

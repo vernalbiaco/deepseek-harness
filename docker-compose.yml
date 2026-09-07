@@ -6,9 +6,11 @@ services:
     image: dsh:local
     entrypoint: ["node", "/app/apps/cli/lib/bin.js", "--profile", "headless"]
     command: []
-    env_file:
-      - path: .env
-        required: false
+    # Direct mode injects no DeepSeek variables. dsh reads the workspace .env
+    # itself, and the web Models page owns the DeepSeek key in the credential
+    # store, so the card stays writable; a launch-environment value would shadow
+    # it read-only. The gateway overlay (docker-compose.omni-wire.yml) sets
+    # DEEPSEEK_BASE_URL and DEEPSEEK_API_KEY here for gateway mode only.
     volumes:
       - dsh-home:/root/.dsh
       # The invoking directory is the agent's default workspace root.
@@ -33,9 +35,7 @@ services:
     image: dsh:local
     entrypoint: ["node", "/app/apps/cli/lib/bin.js"]
     command: ["web", "--no-open"]
-    env_file:
-      - path: .env
-        required: false
+    # Direct mode injects no DeepSeek variables; see the headless service above.
     volumes:
       - dsh-home:/root/.dsh
       - ${DSH_WORKSPACE:-.}:/workspace
@@ -62,9 +62,7 @@ services:
     image: dsh:local
     entrypoint: ["node", "/app/apps/cli/lib/bin.js", "--profile", "api"]
     command: []
-    env_file:
-      - path: .env
-        required: false
+    # Direct mode injects no DeepSeek variables; see the headless service above.
     volumes:
       - dsh-home:/root/.dsh
       - ${DSH_WORKSPACE:-.}:/workspace

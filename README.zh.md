@@ -73,18 +73,21 @@ Web UI 需要浏览器的安全上下文，而纯 HTTP 只会把它授予 `127.0
 
 挂载 Claude Code 与 Codex 的凭据目录后，[`dsh-llm-local-token`](https://github.com/tianxia--/dsh-llm-local-token) 即可将这些订阅作为模型路由提供。这些挂载为可读写：插件会在令牌临近过期时刷新，并写回宿主机 CLI 读取的同一个文件。[`patches/dsh-llm-local-token/`](patches/dsh-llm-local-token/README.md) 收录了该版本在 Linux 上所需的修复，`make docker-patch-plugins` 可在任何一次重新安装后重新应用它们。
 
+默认情况下，harness 直接访问公开的 DeepSeek API，各服务的 DeepSeek 密钥从 Web 的 Models 页面设置而非注入，因此该卡片保持可写。`make docker-all` 会在 Traefik 之后启动这一默认技术栈。将模型流量经网关转发是可选项。
+
 [`docker-compose.omni.yml`](docker-compose.omni.yml) 以独立的 Compose 项目运行 OpenAI 兼容网关 OmniRoute，而 [`docker-compose.omni-wire.yml`](docker-compose.omni-wire.yml) 会把各 harness 服务接入它的网络，使这些服务的模型流量发往该网关而非公开的 DeepSeek API。该网关之所以独立成项目，是因为它的存续时间长于任何一次 harness 运行，还要同时服务宿主机上的工具，因此 `make docker-down` 会让它继续运行；`make docker-omni-down` 才会在已接入的服务停止后停掉它。
 
 ```sh
+make docker-all                                          # DEFAULT full stack: Traefik + web + API, DeepSeek direct
 make docker-omni                                         # gateway at http://127.0.0.1:20128
 make docker-omni-key                                     # how to mint the key it accepts
 make docker-omni-web                                     # web + API routed through the gateway
 make docker-omni-headless ARGS='"summarize the README"'  # one task through the gateway
 make docker-omni-check                                   # confirm the services reach it
-make docker-all                                          # Traefik, gateway, and both services
+make docker-all-omni                                     # full stack with model traffic through the gateway
 ```
 
-仪表盘绑定宿主机回环地址，且在首次使用 `OMNIROUTE_INITIAL_PASSWORD` 登录之前不设身份认证。在其中签发的密钥以 `OMNIROUTE_API_KEY` 写入 `.env`，覆盖文件会在已接入的服务内部把它映射到 `DEEPSEEK_API_KEY`；而 `DEEPSEEK_API_KEY` 本身仍保留真实的 DeepSeek 密钥，因为直连模式的目标读取的是同一个 `.env`。`make docker-omni-key` 会打印相应步骤，`make docker-omni-check` 则报告运行中的服务能否访问该网关。同一条隧道还把该仪表盘发布为 `omni.ernestojpamajr.com`，由 Traefik 依据网关自身的路由标签对外提供；harness 服务经 `omniroute_network` 访问网关，因此它们的模型流量不会走这个名称。
+仪表盘绑定宿主机回环地址，且在首次使用 `OMNIROUTE_INITIAL_PASSWORD` 登录之前不设身份认证。在其中签发的密钥以 `OMNIROUTE_API_KEY` 写入 `.env`，覆盖文件会在已接入的服务内部把它映射到 `DEEPSEEK_API_KEY`；直连模式两者都不注入，其 DeepSeek 密钥来自 Web 的 Models 页面或 `.env` 中一个可写的回退值。`make docker-omni-key` 会打印相应步骤，`make docker-omni-check` 则报告运行中的服务能否访问该网关。同一条隧道还把该仪表盘发布为 `omni.ernestojpamajr.com`，由 Traefik 依据网关自身的路由标签对外提供；harness 服务经 `omniroute_network` 访问网关，因此它们的模型流量不会走这个名称。
 
 覆盖文件在启动环境而非 `.env` 中设置 `DEEPSEEK_BASE_URL`，并且只要有 `.env` 文件设置了它，`dsh` 就会拒绝启动：源码检出以绑定挂载置于 `/workspace`，因此项目内的文件不得能够改变 Agent 访问网络的去向。
 
