@@ -43,3 +43,6 @@ worktrees/
 .typert-*/
 website/.vitepress/cache/
 website/.vitepress/dist/
+
+# Per-deployment secret files are bind-mounted at run time, never baked into the image.
+secrets/

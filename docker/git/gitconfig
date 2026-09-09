@@ -1,0 +1,22 @@
+# System git configuration for the dsh containers, bind-mounted read-only at
+# /etc/gitconfig by docker-compose.yml. The user-level /root/.gitconfig stays
+# writable, so an agent can still override any of this per container or per
+# repository.
+#
+# The image ships git but no ssh client, and the checkouts under /workspace and
+# /workspaces name their GitHub remotes as git@github.com:..., so every GitHub
+# URL is rewritten to HTTPS and authenticated with the token file the
+# git-credential-github helper reads. The bind-mounted checkouts are owned by
+# the host user while the container runs as root, which git otherwise refuses
+# as a dubious-ownership repository.
+[user]
+	name = Ernesto J. Pama Jr.
+	email = ernesto@ravenstack.com
+[safe]
+	directory = *
+[url "https://github.com/"]
+	insteadOf = git@github.com:
+	insteadOf = ssh://git@github.com/
+[credential "https://github.com"]
+	helper = github
+	useHttpPath = false

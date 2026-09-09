@@ -26,6 +26,15 @@ RUN rm -rf .git
 
 FROM node:22-bookworm-slim AS runtime
 
+# git is the agent's push path: docker-compose.yml mounts a system gitconfig
+# and credential helper that drive it over HTTPS. Installing it here rather
+# than inside a running container keeps it across `docker compose up`, which
+# recreates the container from this image. ca-certificates lets git verify
+# github.com.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends git ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
 RUN corepack enable
 
 WORKDIR /app

@@ -51,7 +51,7 @@ make docker-headless ARGS='"summarize the README"'    # answer one task, then ex
 make docker-down                                      # stop every service
 ```
 
-`DSH_WORKSPACE` selects the directory a service mounts as the agent workspace, and `workspaces/` is a second mount for unrelated checkouts. Profile state — installed plugins, sessions, and settings — lives in the `dsh-home` volume and outlives an image rebuild.
+`DSH_WORKSPACE` selects the directory a service mounts as the agent workspace, and `workspaces/` is a second mount for unrelated checkouts. Profile state — installed plugins, sessions, and settings — lives in the `dsh-home` volume and outlives an image rebuild. Write a GitHub token with push access to `secrets/github-token` and the agent can push from any mounted checkout: the image ships git without ssh, so the containers reach GitHub over HTTPS through the credential helper in [`docker/git/`](docker/git/), which reads that file rather than an environment variable the agent's commands would never inherit.
 
 The `api` service serves the same `POST /api/<method>` surface the Web UI calls, composed without a browser client, so a program can create a session, select a model, submit a prompt, and read the transcript over HTTP:
 

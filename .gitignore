@@ -53,3 +53,9 @@ workspaces/*
 # credentials. Regenerate with docker/certs/generate.sh. Anchored at the root
 # so it cannot also swallow the generator in docker/certs/.
 /certs/
+
+# Docker bind-mount root for per-deployment secret files read inside the
+# containers (docker/git/credential-github reads github-token). Anchored at
+# the root; only the placeholder is tracked.
+/secrets/*
+!/secrets/.gitkeep
