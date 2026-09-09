@@ -26,6 +26,16 @@ services:
       # mount would break refresh and eventually log the CLI out.
       - ${HOME}/.claude:/root/.claude
       - ${HOME}/.codex:/root/.codex
+      # GitHub push access for the agent. The image has git but no ssh, so the
+      # system gitconfig rewrites git@github.com: remotes to HTTPS and the
+      # helper answers with ./secrets/github-token. The token is a file, not
+      # an environment variable: the harness drops credential-shaped names
+      # from every agent tool command's environment, so a GITHUB_TOKEN variable
+      # would never reach the agent's own `git push`. An empty secrets/ leaves
+      # git read-only against GitHub and the helper explains that at first use.
+      - ./docker/git/gitconfig:/etc/gitconfig:ro
+      - ./docker/git/credential-github:/usr/local/bin/git-credential-github:ro
+      - ./secrets:/etc/dsh/secrets:ro
     working_dir: /workspace
 
   web:
@@ -46,6 +56,10 @@ services:
       # mount would break refresh and eventually log the CLI out.
       - ${HOME}/.claude:/root/.claude
       - ${HOME}/.codex:/root/.codex
+      # GitHub push access; see the headless service above.
+      - ./docker/git/gitconfig:/etc/gitconfig:ro
+      - ./docker/git/credential-github:/usr/local/bin/git-credential-github:ro
+      - ./secrets:/etc/dsh/secrets:ro
     working_dir: /workspace
     ports:
       # web-proxy listens on 8080 inside this service's network namespace and
@@ -73,6 +87,10 @@ services:
       # mount would break refresh and eventually log the CLI out.
       - ${HOME}/.claude:/root/.claude
       - ${HOME}/.codex:/root/.codex
+      # GitHub push access; see the headless service above.
+      - ./docker/git/gitconfig:/etc/gitconfig:ro
+      - ./docker/git/credential-github:/usr/local/bin/git-credential-github:ro
+      - ./secrets:/etc/dsh/secrets:ro
     working_dir: /workspace
     ports:
       # api-proxy listens on 8081 inside this service's network namespace and
