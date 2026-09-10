@@ -10,7 +10,7 @@ The bot needs a Discord application with a bot user whose **Message Content** in
 
 1. Write the bot token to `secrets/github-token`'s sibling `secrets/discord-token` (the file is gitignored and bind-mounted read-only).
 2. Set `DISCORD_ALLOWED_USER_IDS` in `.env` to the comma-separated Discord user ids that may drive the agent.
-3. Start it beside the api service: `docker compose --profile discord up -d discord-bot`.
+3. With the api service already running under whatever overlay it uses, start the bot with `docker compose --profile discord up -d --no-deps discord-bot` (or `make docker-discord`). `--no-deps` keeps compose from recreating `api` against a different file set; the bot joins the running container's network namespace by service name.
 
 The service shares the api service's network namespace and reaches the API on that namespace's loopback, so no trusted host is declared for it. It exits at start when the token file or the allowlist is missing, and when `host.describe` on the api service fails.
 

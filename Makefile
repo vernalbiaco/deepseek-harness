@@ -5,7 +5,7 @@
 	docker-raven docker-infra docker-infra-down docker-certs docker-certs-trust \
 	docker-patch-plugins docker-check-plugins \
 	docker-omni docker-omni-down docker-omni-web docker-omni-headless \
-	docker-omni-key docker-omni-check docker-all docker-all-omni docker-all-down
+	docker-omni-key docker-omni-check docker-all docker-all-omni docker-all-down docker-discord
 
 # The compose file set every bare `docker compose` below runs against. Overlay
 # modes extend the base rather than replacing it, and compose reads COMPOSE_FILE
@@ -77,6 +77,9 @@ docker-web: ## Run dsh web via docker compose (http://localhost:3080)
 docker-raven: COMPOSE_FILE := $(RAVEN_COMPOSE_FILE)
 docker-raven: ## Run web + API behind RavenStack's Traefik (harness.local.raven.com, harness-api.local.raven.com)
 	docker compose up web web-proxy api api-proxy
+
+docker-discord: ## Start the Discord bridge beside an already running api service (needs secrets/discord-token and DISCORD_ALLOWED_USER_IDS)
+	docker compose --profile discord up -d --no-deps discord-bot
 
 docker-certs: ## Mint the local CA and TLS certificate the HTTPS routes present
 	./docker/certs/generate.sh
