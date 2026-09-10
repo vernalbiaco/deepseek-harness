@@ -110,6 +110,32 @@ services:
     depends_on:
       - api
 
+  # Discord bridge for the api service (apps/discord-bot): one Discord thread
+  # per harness session, approvals and questions answered from Discord. It
+  # shares the api service's network namespace so it reaches the API on that
+  # namespace's loopback, which passes the /api Host fence without declaring
+  # a trusted host. A shared namespace shares nothing else, so the volumes it
+  # needs are declared again here. The bot token is a file for the same
+  # reason as the GitHub token; the allowlist is plain configuration and
+  # rides .env. It exits at start when either is missing.
+  discord-bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: dsh:local
+    entrypoint: ["node", "/app/apps/discord-bot/lib/bin.js"]
+    command: []
+    network_mode: "service:api"
+    depends_on:
+      - api
+    environment:
+      DISCORD_ALLOWED_USER_IDS: ${DISCORD_ALLOWED_USER_IDS:-}
+    volumes:
+      - dsh-home:/root/.dsh
+      - ./secrets:/etc/dsh/secrets:ro
+    profiles:
+      - discord
+
   web-proxy:
     build:
       context: ./docker/proxy
