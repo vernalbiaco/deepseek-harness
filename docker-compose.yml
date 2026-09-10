@@ -117,7 +117,9 @@ services:
   # a trusted host. A shared namespace shares nothing else, so the volumes it
   # needs are declared again here. The bot token is a file for the same
   # reason as the GitHub token; the allowlist is plain configuration and
-  # rides .env. It exits at start when either is missing.
+  # rides .env. It exits at start when either is missing. Start it with
+  # --no-deps against an already running api service: a plain `up` compares
+  # api with the current COMPOSE_FILE and recreates it without its overlay.
   discord-bot:
     build:
       context: .

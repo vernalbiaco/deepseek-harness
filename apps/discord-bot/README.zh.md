@@ -10,7 +10,7 @@
 
 1. 把 bot 令牌写入与 `secrets/github-token` 同级的 `secrets/discord-token`（该文件已被 gitignore，并以只读方式绑定挂载）。
 2. 在 `.env` 中把 `DISCORD_ALLOWED_USER_IDS` 设为允许驱动代理的 Discord 用户 id，以逗号分隔。
-3. 在 api 服务旁启动它：`docker compose --profile discord up -d discord-bot`。
+3. 在 api 服务已经以其所用叠加层运行的前提下，用 `docker compose --profile discord up -d --no-deps discord-bot`（或 `make docker-discord`）启动机器人。`--no-deps` 可防止 compose 按另一组文件重建 `api`；机器人按服务名加入正在运行的容器的网络命名空间。
 
 该服务共享 api 服务的网络命名空间，并通过该命名空间的回环地址访问 API，因此无需为它声明受信主机。当令牌文件或允许列表缺失，或对 api 服务的 `host.describe` 失败时，它会在启动时退出。
 
