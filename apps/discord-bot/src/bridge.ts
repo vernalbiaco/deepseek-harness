@@ -20,14 +20,26 @@ import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { ApprovalOutcome, ApprovalRequestId } from '@deepseek-ai/dsh-user-approval/types'
 import type { AskUserQuestionAnswerItem, AskUserQuestionItem } from '@deepseek-ai/dsh-user-questions/types'
 import type { CallId } from '@deepseek-ai/dsh-llm/brand'
+import type { WorkspaceId } from '@deepseek-ai/dsh-host-apiproxy'
+import { basename, dirname } from 'node:path'
 import type { ThreadStore } from './state.ts'
 import { assistantText, toolCallLine, toolErrorLine, turnEndLine } from './text.ts'
 
 /** The slice of the api client the bridge drives. */
 export interface BridgeApi {
   sessions: Pick<IApiClient['sessions'], 'create' | 'prompt' | 'cancel'>
+  workspace: Pick<IApiClient['workspace'], 'list' | 'create' | 'rename'>
+  host: Pick<IApiClient['host'], 'createDirectory'>
   events: Pick<IApiClient['events'], 'mux'>
   respond: IApiClient['respond']
+}
+
+/** The Web UI workspace every bot session joins, found by title or registered from a directory. */
+export interface WorkspaceSpec {
+  /** Absolute directory on the api service's filesystem to register when no workspace carries `title`; created when absent. */
+  path: string
+  /** Title shown in the Web UI sidebar; an existing workspace with this exact title is adopted as is. */
+  title: string
 }
 
 /** One tool approval waiting for a human, addressed by its server-request id. */
@@ -72,8 +84,8 @@ export interface BridgeOptions {
   poster: Poster
   store: ThreadStore
   allowedUserIds: ReadonlySet<string>
-  /** Working directory for new sessions; absent uses the api service's cwd. */
-  sessionCwd?: string
+  /** Workspace to register and file every session under; absent creates sessions in the api service's cwd, ungrouped. */
+  workspace?: WorkspaceSpec
   log: Logger
   /** Backoff for reopening the event stream; defaults to 500 ms doubling to 30 s. */
   reconnect?: { initialDelayMs: number; maxDelayMs: number }
@@ -139,7 +151,8 @@ export class Bridge {
   private readonly poster: Poster
   private readonly store: ThreadStore
   private readonly allowedUserIds: ReadonlySet<string>
-  private readonly sessionCwd: string | undefined
+  private readonly workspace: WorkspaceSpec | undefined
+  private workspaceId: WorkspaceId | undefined
   private readonly log: Logger
   private readonly reconnect: { initialDelayMs: number; maxDelayMs: number }
   private readonly threadsBySession = new Map<string, string>()
@@ -154,10 +167,45 @@ export class Bridge {
     this.poster = options.poster
     this.store = options.store
     this.allowedUserIds = options.allowedUserIds
-    this.sessionCwd = options.sessionCwd
+    this.workspace = options.workspace
     this.log = options.log
     this.reconnect = options.reconnect ?? { initialDelayMs: 500, maxDelayMs: 30_000 }
     for (const [threadId, sessionId] of this.store.entries()) this.threadsBySession.set(sessionId, threadId)
+  }
+
+  /**
+   * Resolve the workspace every bot session joins: an existing workspace
+   * whose title matches is adopted, whatever its directory; otherwise the
+   * configured directory is created when absent, registered, and titled.
+   * A no-op without a workspace.
+   * @throws when the api service refuses the listing, the directory, the registration, or the title.
+   */
+  async ensureWorkspace(): Promise<void> {
+    if (this.workspace === undefined) return
+    const { path, title } = this.workspace
+    const listed = await this.api.workspace.list({})
+    if (!listed.result.ok) throw new Error(`cannot list workspaces: ${listed.result.error.message}`)
+    const existing = listed.result.value.items.find(item => item.title === title)
+    if (existing !== undefined) {
+      this.workspaceId = existing.workspaceId
+      this.log.info(`workspace "${existing.title}" at ${existing.path} (${existing.workspaceId})`)
+      return
+    }
+    let created = await this.api.workspace.create({ path })
+    if (!created.result.ok && created.result.error.code === 'workspace-invalid-path') {
+      const made = await this.api.host.createDirectory({ path: dirname(path), name: basename(path) })
+      if (!made.result.ok) throw new Error(`cannot create workspace directory ${path}: ${made.result.error.message}`)
+      created = await this.api.workspace.create({ path })
+    }
+    if (!created.result.ok) throw new Error(`cannot register workspace ${path}: ${created.result.error.message}`)
+    let { workspace } = created.result.value
+    if (workspace.title !== title) {
+      const renamed = await this.api.workspace.rename({ workspaceId: workspace.workspaceId, title })
+      if (!renamed.result.ok) throw new Error(`cannot title workspace ${path}: ${renamed.result.error.message}`)
+      workspace = renamed.result.value.workspace
+    }
+    this.workspaceId = workspace.workspaceId
+    this.log.info(`workspace "${workspace.title}" at ${workspace.path} (${workspace.workspaceId})`)
   }
 
   /**
@@ -397,7 +445,7 @@ export class Bridge {
   private async sessionFor(threadId: string): Promise<SessionId> {
     const known = this.store.get(threadId)
     if (known !== undefined) return known as SessionId
-    const response = await this.api.sessions.create(this.sessionCwd === undefined ? {} : { cwd: this.sessionCwd })
+    const response = await this.api.sessions.create(this.workspaceId === undefined ? {} : { workspaceId: this.workspaceId })
     if (!response.result.ok) throw new Error(`${response.result.error.code}: ${response.result.error.message}`)
     const { sessionId } = response.result.value
     await this.store.set(threadId, sessionId)

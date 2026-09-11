@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-10-discord-bridge-over-the-api-service.md
-2026-09-10-discord-bridge-over-the-api-service.md: d2d53e63866eca1f6a1bf3c6fa60804a4e6827bd
-2026-09-10-discord-bridge-over-the-api-service.zh.md: 51b493accfff5cdbbbb980626972ea741759f354
+2026-09-10-discord-bridge-over-the-api-service.md: 1b643b62da9c60b2e85bc14508b6d5d4ecd2d38e
+2026-09-10-discord-bridge-over-the-api-service.zh.md: 38fd15810265297d1a7a5a396cc3f709edcbfa79

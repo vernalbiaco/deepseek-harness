@@ -10,7 +10,7 @@
 
 ## 决策
 
-交付 `apps/discord-bot`，一个作为 `api` 服务普通客户端的私有应用。它通过 `POST /api/<method>` 调用 `session.create`、`session.prompt` 和 `session.cancel`，通过 WebSocket 消费 `/api/events.mux`，并通过 `/api/respond` 回答 `approval/requested` 和 `question/requested` 帧。因此它创建的会话会出现在 Web UI 中，并共享部署的默认模型、预设和工具。
+交付 `apps/discord-bot`，一个作为 `api` 服务普通客户端的私有应用。它通过 `POST /api/<method>` 调用 `session.create`、`session.prompt` 和 `session.cancel`，通过 WebSocket 消费 `/api/events.mux`，并通过 `/api/respond` 回答 `approval/requested` 和 `question/requested` 帧。因此它创建的会话会出现在 Web UI 中，并共享部署的默认模型、预设和工具。这些会话归入同一个工作区：已存在标题为 `Discord` 的工作区时按标题直接采用，因为用户可能已在 Web UI 中用自己的目录创建了它；否则，由于工作区即一个规范目录，机器人会以该标题注册一个配置的目录（默认 `/workspaces/Discord`，缺失时通过 `host.createDirectory` 创建）。每个会话都以该 `workspaceId` 创建。
 
 与 Discord 无关的核心（`bridge.ts`）把线程 id 映射到会话 id，把 mux 流过滤到它创建的会话，并通过 `Poster` 接口与聊天平台对话；`discord.ts` 用 discord.js 实现该接口。一个线程即一个会话：在服务器频道中提及会打开一个线程，DM 频道本身就是一个线程。只有允许列表中的 Discord 用户 id 可以提示、审批或回答；其他用户都会被忽略并记录日志。线程映射以 JSON 形式持久化在 `dsh-home` 卷上，因此重启后旧线程仍然有效；mux 以指数退避重新打开，并按服务端请求 id 对宿主重放的待处理提示去重。
 

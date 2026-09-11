@@ -22,10 +22,12 @@
 | `DISCORD_ALLOWED_USER_IDS` | 必填 | 允许提示、审批和回答的 Discord 用户 id，以逗号分隔 |
 | `DSH_API_URL` | `http://127.0.0.1:3081` | api 服务的基础 URL |
 | `DSH_DISCORD_STATE_FILE` | `$DSH_HOME/discord-bot/threads.json` | 线程到会话的映射，重启后保留 |
-| `DSH_SESSION_CWD` | api 服务的 cwd | 机器人创建的每个会话的工作目录 |
+| `DSH_DISCORD_WORKSPACE_TITLE` | `Discord` | 机器人每个会话所加入的 Web UI 工作区；已有同名工作区时直接采用 |
+| `DSH_DISCORD_WORKSPACE_DIR` | `/workspaces/Discord` | 没有该标题的工作区时，以该标题注册的绝对目录；缺失时会创建 |
 
 ## 对话规则
 
+- 启动时，若已存在标题为 `DSH_DISCORD_WORKSPACE_TITLE` 的工作区，机器人直接采用；否则以该标题注册 `DSH_DISCORD_WORKSPACE_DIR`，目录缺失时通过 api 服务创建。它创建的每个会话都在该工作区的目录中运行，并在 Web UI 中显示在该工作区之下。
 - 在服务器频道中提及机器人会创建一个以该消息命名的线程和一个新会话；提及文本就是第一条提示。机器人拥有的线程中的消息会继续其会话。DM 频道本身就是一个线程。
 - 来自允许列表之外用户的消息、按钮点击和菜单选择会被忽略并记录日志；点击的陌生人会收到一条仅自己可见的拒绝。
 - 每条消息作为一条提示排队。`!cancel` 会中止正在运行的回合。
