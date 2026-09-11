@@ -24,6 +24,8 @@ Status: implemented
 
 代理通过 HTTPS 与一个令牌文件向 GitHub 推送。运行时镜像自带 git（构建阶段的那份只用于给构建打戳，并随该阶段一起丢弃）而没有 ssh 客户端，且 `/workspace` 与 `/workspaces` 下的检出以 `git@github.com:` 命名其远端，因此以只读方式挂载到 `/etc/gitconfig` 的系统级 gitconfig 会把 GitHub URL 重写为 HTTPS，把宿主机所有的绑定挂载认作安全目录，并选用一个读取 `./secrets/github-token` 的凭据助手；该文件以只读方式绑定挂载到 `/etc/dsh/secrets` 之下。Git 只跟踪 `secrets/.gitkeep`，构建上下文将该目录排除。令牌之所以是文件，是因为子进程接缝会从代理工具命令继承的环境中剔除所有形似凭据的名称：`GITHUB_TOKEN` 变量对 `docker compose exec` 可见，却在代理自己的 `git push` 中缺席。空的 `secrets/` 会让 GitHub 保持只读，助手在首次使用时会指出缺失的文件。
 
+镜像会构建 Landlock 启动器。bash 沙箱提供方先探测 `bwrap`，再探测工作区 linux-x64 平台包所解析的静态 `landlock-run` 二进制；工作区只携带该包的 C 源码，二进制交由需要 `musl-tools` 的 `pnpm run build:native` 生成。跳过这一步的镜像两个后端都没有，因此在基础 bundle 的 `workspace-write` 策略下，每次 bash 调用都会以 `SANDBOX_UNAVAILABLE` 封闭失败，而 headless 运行没有可供升级的审批渠道。因此构建阶段会安装 `musl-tools`，并在工作区构建之前运行原生构建；二进制随 `/app` 的复制进入运行时阶段。在 Docker 默认 seccomp 配置下，该启动器在宿主机内核 ABI 上探测为部分强制，但仍会拒绝授权之外的写入。
+
 ### 经共享 Traefik 路由
 
 [`docker-compose.raven.yml`](../../../../docker-compose.raven.yml) 是一个覆盖文件，它为同样这两个服务添加第二条路径：用 Traefik 路由标签把它们发布为 `harness.local.raven.com` 与 `harness-api.local.raven.com`。标签位于 `dsh` 服务而非其边车上，因为 Traefik 发现的是该服务，而它所指向的端口是该服务网络命名空间内边车的监听端口。回环发布端口保持不变；该覆盖文件是新增一条路径，而非替换原有路径。
