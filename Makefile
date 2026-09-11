@@ -5,7 +5,8 @@
 	docker-raven docker-infra docker-infra-down docker-certs docker-certs-trust \
 	docker-patch-plugins docker-check-plugins \
 	docker-omni docker-omni-down docker-omni-web docker-omni-headless \
-	docker-omni-key docker-omni-check docker-all docker-all-omni docker-all-down docker-discord docker-discord-logs
+	docker-omni-key docker-omni-check docker-all docker-all-omni docker-all-down docker-discord docker-discord-logs \
+	sandbox-launcher
 
 # The compose file set every bare `docker compose` below runs against. Overlay
 # modes extend the base rather than replacing it, and compose reads COMPOSE_FILE
@@ -70,6 +71,22 @@ hygiene: ## Run knip/publint/workspace-constraint checks
 
 docker-build: ## Build the dsh CLI image
 	docker compose build
+
+# The bash sandbox probes for this static musl binary; without it every
+# sandboxed bash call fails closed. `pnpm run build:native` needs musl-tools
+# on the host, so this compiles the same source with the same flags inside a
+# throwaway container and writes the binary where the workspace's linux-x64
+# platform package resolves it. The output is gitignored; rerun after a
+# `git clean -x` or a fresh clone. The image builds its own copy (Dockerfile).
+LANDLOCK_SRC := native/landlock-run/packages/entry/src/main.c
+LANDLOCK_BIN_DIR := native/landlock-run/packages/linux-x64/bin
+sandbox-launcher: ## Build the Landlock launcher for source launches on a host without musl-tools (uses Docker)
+	mkdir -p $(LANDLOCK_BIN_DIR)
+	docker run --rm -v "$(CURDIR)/$(LANDLOCK_SRC):/src/main.c:ro" -v "$(CURDIR)/$(LANDLOCK_BIN_DIR):/out" node:22-bookworm-slim sh -c \
+		'apt-get update -qq >/dev/null && apt-get install -y -qq --no-install-recommends musl-tools >/dev/null \
+		&& musl-gcc -std=c11 -Os -Wall -Wextra -Werror -static -s -o /out/landlock-run /src/main.c \
+		&& chown $(shell id -u):$(shell id -g) /out/landlock-run'
+	$(LANDLOCK_BIN_DIR)/landlock-run --probe
 
 docker-web: ## Run dsh web via docker compose (http://localhost:3080)
 	docker compose up web web-proxy
