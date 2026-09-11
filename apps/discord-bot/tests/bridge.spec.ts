@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { ClientResponse, MuxFrame, RpcId, RpcRequest } from '@deepseek-ai/dsh-host-apiproxy'
+import type { ClientResponse, MuxFrame, RpcId, RpcRequest, WorkspaceId, WorkspaceView } from '@deepseek-ai/dsh-host-apiproxy'
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session/types'
 import type { ApprovalRequestId } from '@deepseek-ai/dsh-user-approval/types'
 import { Bridge, type ApprovalPrompt, type BridgeApi, type Logger, type Poster, type QuestionPrompt } from '../src/bridge.ts'
@@ -8,7 +8,12 @@ import { memoryThreadStore } from '../src/state.ts'
 const USER = '111111111'
 const STRANGER = '222222222'
 const SID = 'session-1' as SessionId
+const WID = 'ws-1' as WorkspaceId
 let seq = 0
+
+function workspaceView(title: string): WorkspaceView {
+  return { workspaceId: WID, path: '/workspaces/discord', title, sessionIds: [], createdAt: 't', updatedAt: 't' }
+}
 
 function event(type: string, data: unknown): SessionEvent {
   return { type, seq: seq++, time: 1, data } as unknown as SessionEvent
@@ -32,6 +37,40 @@ class FakeApi implements BridgeApi {
   failCreate = false
   muxOpens = 0
   muxFrames: RpcRequest<MuxFrame>[][] = []
+  readonly workspaceCalls: string[] = []
+  /** Directory state for workspace.create: missing until host.createDirectory runs. */
+  directoryExists = true
+  existingTitle = 'discord'
+  failRename = false
+  /** Workspaces the host already lists. */
+  listed: WorkspaceView[] = []
+
+  readonly workspace: BridgeApi['workspace'] = {
+    list: () => {
+      this.workspaceCalls.push('list')
+      return Promise.resolve({ rpcId: 'x' as RpcId, result: { ok: true as const, value: { items: this.listed, archivedSessionIds: [] } } })
+    },
+    create: (payload) => {
+      this.workspaceCalls.push(`create:${payload.path}`)
+      if (!this.directoryExists) {
+        return Promise.resolve({ rpcId: 'x' as RpcId, result: { ok: false as const, error: { code: 'workspace-invalid-path' as const, message: 'missing', details: { path: payload.path } } } })
+      }
+      return Promise.resolve({ rpcId: 'x' as RpcId, result: { ok: true as const, value: { workspace: workspaceView(this.existingTitle), created: false } } })
+    },
+    rename: (payload) => {
+      this.workspaceCalls.push(`rename:${payload.title}`)
+      if (this.failRename) return Promise.resolve({ rpcId: 'x' as RpcId, result: { ok: false as const, error: { code: 'workspace-not-found' as const, message: 'gone', details: { workspaceId: payload.workspaceId } } } })
+      return Promise.resolve({ rpcId: 'x' as RpcId, result: { ok: true as const, value: { workspace: workspaceView(payload.title) } } })
+    },
+  }
+
+  readonly host: BridgeApi['host'] = {
+    createDirectory: (payload) => {
+      this.workspaceCalls.push(`mkdir:${payload.path}/${payload.name}`)
+      this.directoryExists = true
+      return Promise.resolve({ rpcId: 'x' as RpcId, result: { ok: true as const, value: { path: `${payload.path}/${payload.name}` } } })
+    },
+  }
 
   readonly sessions: BridgeApi['sessions'] = {
     create: (payload) => {
@@ -108,7 +147,7 @@ class FakePoster implements Poster {
 
 const silent: Logger = { info: () => {}, warn: () => {}, error: () => {} }
 
-function harness(options: { threads?: [string, string][]; cwd?: string; log?: Logger } = {}) {
+function harness(options: { threads?: [string, string][]; workspace?: boolean; log?: Logger } = {}) {
   const api = new FakeApi()
   const poster = new FakePoster()
   const store = memoryThreadStore(options.threads ?? [])
@@ -117,7 +156,7 @@ function harness(options: { threads?: [string, string][]; cwd?: string; log?: Lo
     poster,
     store,
     allowedUserIds: new Set([USER]),
-    ...(options.cwd === undefined ? {} : { sessionCwd: options.cwd }),
+    ...(options.workspace === true ? { workspace: { path: '/workspaces/discord', title: 'Discord' } } : {}),
     log: options.log ?? silent,
     reconnect: { initialDelayMs: 1, maxDelayMs: 2 },
   })
@@ -126,9 +165,9 @@ function harness(options: { threads?: [string, string][]; cwd?: string; log?: Lo
 
 describe('Bridge messages', () => {
   it('creates a session on the first message, binds the thread, and queues the prompt', async () => {
-    const { api, store, bridge } = harness({ cwd: '/workspaces/x' })
+    const { api, store, bridge } = harness()
     expect(await bridge.onUserMessage('t1', USER, '  hello  ')).toBe('prompted')
-    expect(api.created).toEqual([{ cwd: '/workspaces/x' }])
+    expect(api.created).toEqual([{}])
     expect(api.prompts).toEqual([{ sessionId: SID, mode: 'queue', content: [{ type: 'text', text: 'hello' }] }])
     expect(store.get('t1')).toBe(SID)
     expect(bridge.knowsThread('t1')).toBe(true)
@@ -163,6 +202,42 @@ describe('Bridge messages', () => {
     expect(api.cancels).toEqual([{ sessionId: SID }])
     expect(await bridge.onUserMessage('t9', USER, '!cancel')).toBe('ignored')
     expect(poster.calls).toEqual(['line:t9:Nothing to cancel here yet.'])
+  })
+})
+
+describe('Bridge workspace', () => {
+  it('registers the directory, titles it, and files sessions under it', async () => {
+    const { api, bridge } = harness({ workspace: true })
+    api.directoryExists = false
+    await bridge.ensureWorkspace()
+    expect(api.workspaceCalls).toEqual(['list', 'create:/workspaces/discord', 'mkdir:/workspaces/discord', 'create:/workspaces/discord', 'rename:Discord'])
+    await bridge.onUserMessage('t1', USER, 'hi')
+    expect(api.created).toEqual([{ workspaceId: WID }])
+  })
+
+  it('adopts an existing workspace by title, whatever its directory', async () => {
+    const { api, bridge } = harness({ workspace: true })
+    api.listed = [{ ...workspaceView('Discord'), workspaceId: 'ws-user' as WorkspaceId, path: '/workspaces/Elsewhere' }]
+    await bridge.ensureWorkspace()
+    expect(api.workspaceCalls).toEqual(['list'])
+    await bridge.onUserMessage('t1', USER, 'hi')
+    expect(api.created).toEqual([{ workspaceId: 'ws-user' }])
+  })
+
+  it('leaves a correctly titled registration alone and is a no-op without one', async () => {
+    const { api, bridge } = harness({ workspace: true })
+    api.existingTitle = 'Discord'
+    await bridge.ensureWorkspace()
+    expect(api.workspaceCalls).toEqual(['list', 'create:/workspaces/discord'])
+    const plain = harness()
+    await plain.bridge.ensureWorkspace()
+    expect(plain.api.workspaceCalls).toEqual([])
+  })
+
+  it('fails loudly when the host refuses the title', async () => {
+    const { api, bridge } = harness({ workspace: true })
+    api.failRename = true
+    await expect(bridge.ensureWorkspace()).rejects.toThrow('cannot title workspace /workspaces/discord: gone')
   })
 })
 

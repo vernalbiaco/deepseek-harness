@@ -21,6 +21,8 @@ describe('loadConfig', () => {
       discordToken: 'abc.def',
       allowedUserIds: new Set(['123456789', '987654321']),
       stateFile: join(dir, 'discord-bot', 'threads.json'),
+      workspaceDir: '/workspaces/Discord',
+      workspaceTitle: 'Discord',
     })
   })
 
@@ -30,11 +32,14 @@ describe('loadConfig', () => {
       DISCORD_ALLOWED_USER_IDS: '123456789',
       DSH_API_URL: 'http://api:8081',
       DSH_DISCORD_STATE_FILE: '/state/x.json',
-      DSH_SESSION_CWD: '/workspaces/marketing',
+      DSH_DISCORD_WORKSPACE_DIR: '/workspaces/marketing',
+      DSH_DISCORD_WORKSPACE_TITLE: 'Marketing chat',
     })
     expect(config.apiBaseUrl).toBe('http://api:8081')
     expect(config.stateFile).toBe('/state/x.json')
-    expect(config.sessionCwd).toBe('/workspaces/marketing')
+    expect(config.workspaceDir).toBe('/workspaces/marketing')
+    expect(config.workspaceTitle).toBe('Marketing chat')
+    expect(() => loadConfig({ DISCORD_TOKEN_FILE: tokenFile, DISCORD_ALLOWED_USER_IDS: '123456789', DSH_DISCORD_WORKSPACE_DIR: 'relative' })).toThrow('absolute path')
   })
 
   it('fails loudly on a missing or empty token and a bad allowlist', async () => {

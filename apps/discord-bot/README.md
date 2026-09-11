@@ -22,10 +22,12 @@ The service shares the api service's network namespace and reaches the API on th
 | `DISCORD_ALLOWED_USER_IDS` | required | Comma-separated Discord user ids allowed to prompt, approve, and answer |
 | `DSH_API_URL` | `http://127.0.0.1:3081` | Base URL of the api service |
 | `DSH_DISCORD_STATE_FILE` | `$DSH_HOME/discord-bot/threads.json` | Thread-to-session map, kept across restarts |
-| `DSH_SESSION_CWD` | api service cwd | Working directory for every session the bot creates |
+| `DSH_DISCORD_WORKSPACE_TITLE` | `Discord` | Web UI workspace every bot session joins; an existing workspace with this title is adopted |
+| `DSH_DISCORD_WORKSPACE_DIR` | `/workspaces/Discord` | Absolute directory registered under that title when no workspace carries it; created when absent |
 
 ## Conversation rules
 
+- At start the bot adopts the workspace titled `DSH_DISCORD_WORKSPACE_TITLE` when one exists; otherwise it registers `DSH_DISCORD_WORKSPACE_DIR` under that title, creating the directory through the api service when it is missing. Every session it creates runs in that workspace's directory and appears under it in the Web UI.
 - A mention in a guild channel creates a thread named after the message and a fresh session; the mention text is the first prompt. A message in a thread the bot owns continues its session. A DM channel is its own thread.
 - Messages, button clicks, and menu choices from users outside the allowlist are ignored and logged; strangers who click get an ephemeral refusal.
 - Each message is queued as one prompt. `!cancel` aborts the running turn.

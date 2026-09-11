@@ -31,9 +31,10 @@ const bridge = new Bridge({
   poster: new DiscordPoster(client),
   store,
   allowedUserIds: config.allowedUserIds,
-  ...(config.sessionCwd === undefined ? {} : { sessionCwd: config.sessionCwd }),
+  workspace: { path: config.workspaceDir, title: config.workspaceTitle },
   log,
 })
+await bridge.ensureWorkspace()
 attachBridge(client, bridge, log)
 
 const controller = new AbortController()
