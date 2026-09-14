@@ -31,7 +31,7 @@ describe('TrustStore', () => {
     const store = new TrustStore(filename)
     await store.record(WORKSPACE, [{ serverName: 'brandguard', decision: 'allow', fingerprint: 'sha256:abc' }], NOW)
     const stats = await stat(filename)
-    expect(stats.mode & 0o777).toBe(0o600)
+    if (process.platform !== 'win32') expect(stats.mode & 0o777).toBe(0o600)
   })
 
   it('round-trips an allow decision', async () => {
