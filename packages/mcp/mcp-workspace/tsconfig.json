@@ -21,6 +21,15 @@
       "path": "../../core/agent"
     },
     {
+      "path": "../../core/agent-loop"
+    },
+    {
+      "path": "../../core/system-prompt"
+    },
+    {
+      "path": "../../test-support/agent-loop-testkit"
+    },
+    {
       "path": "../../core/session"
     },
     {
