@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-Workspace-declared MCP servers: reads `.mcp.json` from each session's canonical cwd, connects a declared server only after a user decision stored outside the workspace, shares one supervised connection per workspace server across the sessions that use it, and registers that server's tools on each eligible agent's own tool layer under the [`dsh-mcp-client`](../mcp-client/README.md) names `mcp__<serverName>__<rawName>`.
+Workspace-declared MCP servers: reads `.mcp.json` from each session's canonical cwd, connects a declared server only after a user decision, stored for the workspace in `$DSH_HOME/mcp-trust.yaml` or given for one session, shares one supervised connection per workspace server across the sessions that use it, and registers that server's tools on each eligible agent's own tool layer under the [`dsh-mcp-client`](../mcp-client/README.md) names `mcp__<serverName>__<rawName>`.
 
 ## Usage
 
@@ -68,7 +68,7 @@ The file must be a JSON object with an `mcpServers` object; otherwise the whole 
 
 Every declared server is admitted by the decision stored for its canonical workspace path, server name, and current fingerprint. A matching `allow` connects the server, a matching `deny` skips it without asking, and a missing entry or an entry for another fingerprint needs a decision.
 
-An eligible agent that is not a subagent child asks one question per workspace, listing every undecided server with its transport, its command and arguments or URL, and each referenced credential as `set` or `missing`. Other sessions in the same workspace wait for that answer.
+An eligible agent that is not a subagent child asks one question listing every undecided server with its transport, its command and arguments or URL, and each referenced credential as `set` or `missing`. One question is pending per workspace path and undecided fingerprint set; sessions with the same undecided set wait for its answer. If the asking agent answers Allow this session or is disposed, each waiting session asks its own question.
 
 | Option | Effect |
 |---|---|
@@ -78,7 +78,7 @@ An eligible agent that is not a subagent child asks one question per workspace, 
 
 Disposing the asking agent aborts the question, and the next session in that workspace asks again. When no question UI is available, undecided servers are skipped and logged as `mcp-workspace(<name>): not approved; no question UI is available`.
 
-Every attachment of a server to an agent rechecks the stored decision: when an agent is created, once more after that agent's `.mcp.json` read, and immediately before an asynchronous attach. A `deny`, a changed fingerprint, a missing entry without an Allow this session, or an unreadable trust file withdraws the server from that agent and releases the plugin-held preconnect reference. An unreadable or invalid trust file admits nothing, including servers allowed for this session.
+Every attachment of a server to an agent rechecks the stored decision: when an agent is created, once more after that agent's `.mcp.json` read, and immediately before an asynchronous attach. A stored `deny`, a missing entry without an Allow this session, a stored entry whose fingerprint no longer matches the `.mcp.json` entry, or an unreadable trust file withdraws the server from that agent and releases the plugin-held preconnect reference. Removing or changing the entry in `.mcp.json` withdraws the server from each agent that reads the file afterwards, but the plugin-held preconnect reference and its connection stay until the plugin is disposed. An unreadable or invalid trust file admits nothing, including servers allowed for this session.
 
 ### Trust file
 
@@ -159,7 +159,7 @@ Append-only; newly visible content follows the reusable request prefix and does 
 
 - **A revoked decision does not reach running agents** — the recheck runs when a server attaches to an agent, so an agent created before a decision was deleted or changed to `deny` keeps that server's tools until it is disposed.
 - **Decisions are keyed by canonical path** — the same checkout mounted at two paths, such as a Web workspace and a container mount, needs a separate decision for each path.
-- **`.mcp.json` is not watched** — an edit takes effect for the next session in that workspace; a changed fingerprint asks again while the previous connection stays until its last reference is released.
+- **`.mcp.json` is not watched** — an edit takes effect for the next session in that workspace, and a changed fingerprint asks again. A preconnected connection for a removed or changed entry stays open until the plugin is disposed, because only a stored-decision recheck of that same entry releases the plugin-held preconnect reference.
 - **Approved stdio servers run outside the sandbox** — the decision authorizes an unsandboxed program with the scrubbed parent environment.
 - **`sse` is unsupported** — an entry with `type: "sse"` is refused; only stdio and Streamable HTTP servers connect.
 - **Broken approved servers are reported in host logs only** — a missing credential or an unreachable server produces a log line and no notice in any user interface.
