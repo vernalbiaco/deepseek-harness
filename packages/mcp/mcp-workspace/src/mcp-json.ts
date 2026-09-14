@@ -9,17 +9,12 @@
 import { createHash } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
+import { SERVER_NAME_PATTERN } from '@deepseek-ai/dsh-mcp-client'
 import { SENSITIVE_ENV_PATTERN } from '@deepseek-ai/dsh-subprocess'
 import type { DeclaredServer, McpJsonReadResult, RefusedServer, WorkspaceServerEntry } from './types.ts'
 
 /** Workspace `.mcp.json` file name, relative to the canonical workspace cwd. External format; stays fixed. */
 export const MCP_JSON_FILE = '.mcp.json'
-
-/**
- * Valid workspace server name, matching `@deepseek-ai/dsh-mcp-client`'s
- * `serverName` rule (`SERVER_NAME_PATTERN`).
- */
-const SERVER_NAME = /^[A-Za-z0-9_-]{1,32}$/
 
 const SENSITIVE_HEADER_NAMES = new Set(['authorization', 'proxy-authorization', 'cookie'])
 
@@ -64,7 +59,7 @@ export function parseMcpJson(text: string, source: string): McpJsonReadResult {
   const servers: DeclaredServer[] = []
   const refused: RefusedServer[] = []
   for (const [serverName, rawEntry] of Object.entries(mcpServers)) {
-    if (!SERVER_NAME.test(serverName)) {
+    if (!SERVER_NAME_PATTERN.test(serverName)) {
       refused.push({ name: serverName, reason: 'invalid server name' })
       continue
     }
