@@ -228,7 +228,7 @@ describe('createRegistrySink', () => {
     expect(errors.some(line => line.includes('tool registration failed, no tools registered'))).toBe(true)
 
     const throwSink = createRegistrySink(ctx, 'srv')
-    expect(() => throwSink.replace(definitions, 'throw')).toThrow()
+    expect(() => { throwSink.replace(definitions, 'throw') }).toThrow()
     expect(ctx.tools.get('mcp__srv__free')).toBeUndefined()
   })
 })
@@ -250,9 +250,10 @@ describe('startConnection options', () => {
     const ctx = await mountRegistry()
     const registerSpy = vi.spyOn(ctx.tools, 'register')
     const replaceCalls: ToolDefinitions[] = []
+    const clearMock = vi.fn()
     const sink: ToolSink = {
       replace: (definitions) => { replaceCalls.push(definitions) },
-      clear: vi.fn(),
+      clear: clearMock,
     }
 
     const handle = startConnection(ctx, stdioConfig(), resolveReconnectPolicy(undefined, 'reconnect'), { sink })
@@ -263,7 +264,7 @@ describe('startConnection options', () => {
     expect(registerSpy).not.toHaveBeenCalled()
 
     await handle.dispose()
-    expect(sink.clear).toHaveBeenCalled()
+    expect(clearMock).toHaveBeenCalled()
   })
 
   it('calls resolveConfig once per attempt and retries after a rejection', async () => {
