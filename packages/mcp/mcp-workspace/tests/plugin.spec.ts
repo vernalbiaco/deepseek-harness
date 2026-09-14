@@ -196,6 +196,37 @@ describe('mcp-workspace plugin', () => {
     await until(() => !isAlive(pid!))
   })
 
+  it('settles fiber disposal requested while activation awaits a connecting server', async () => {
+    const { ctx, workspace, trustFile, pidDir } = await harness()
+    await allowServer(trustFile, workspace, { command: process.execPath, args: [echoPath], env: { MCP_FIXTURE_PID_DIR: pidDir } })
+    vi.spyOn(process, 'cwd').mockReturnValue(workspace)
+
+    const fiber = ctx.plugin(plugin, config({ trustFile }))
+    await until(async () => (await pids(pidDir)).length === 1)
+    const [pid] = await pids(pidDir)
+    const started = performance.now()
+    await fiber.dispose()
+
+    expect(performance.now() - started).toBeLessThan(5_000)
+    expect(activePools().get(ctx.root)).toBeUndefined()
+    await until(() => !isAlive(pid!))
+  }, 15_000)
+
+  it('settles fiber disposal requested while activation awaits a silent server within preconnectTimeoutMs', async () => {
+    const { ctx, workspace, trustFile, pidDir } = await harness()
+    await allowServer(trustFile, workspace, { command: process.execPath, args: [silentPath], env: { MCP_FIXTURE_PID_DIR: pidDir } })
+    vi.spyOn(process, 'cwd').mockReturnValue(workspace)
+
+    const fiber = ctx.plugin(plugin, config({ trustFile, preconnectTimeoutMs: 1_000 }))
+    await until(async () => (await pids(pidDir)).length === 1)
+    const [pid] = await pids(pidDir)
+    const started = performance.now()
+    await fiber.dispose()
+
+    expect(performance.now() - started).toBeLessThan(1_000 + 5_000)
+    await until(() => !isAlive(pid!))
+  }, 15_000)
+
   it('connects nothing at activation without preconnect', async () => {
     const { ctx, workspace, trustFile, pidDir } = await harness()
     await allowServer(trustFile, workspace, { command: process.execPath, args: [echoPath], env: { MCP_FIXTURE_PID_DIR: pidDir } })

@@ -19,6 +19,7 @@ import { WorkspacePool } from '../src/pool.ts'
 import type { DeclaredServer } from '../src/types.ts'
 
 const fixturePath = fileURLToPath(new URL('./fixtures/echo-server.ts', import.meta.url))
+const silentPath = fileURLToPath(new URL('./fixtures/silent-server.ts', import.meta.url))
 const ECHO = 'mcp__fixture__echo'
 const REGISTRATION_FAILED = 'mcp-workspace(fixture): tool registration failed for one agent: '
 
@@ -393,4 +394,27 @@ describe('WorkspacePool', () => {
     await until(() => children.every(pid => !isAlive(pid)))
     expect(() => pool.acquire(dir, fixtureServer(dir))).toThrow('mcp-workspace: acquire on a disposed pool')
   }, 20_000)
+
+  it('dispose settles during a connection first attempt', async () => {
+    const { pool, dir } = await harness()
+    const lease = pool.acquire(dir, fixtureServer(dir))
+    const started = Date.now()
+    await pool.dispose()
+    expect(Date.now() - started).toBeLessThan(5_000)
+    expect(await lease.ready).toHaveProperty('error')
+    await until(async () => (await pids(dir)).every(pid => !isAlive(pid)))
+  }, 15_000)
+
+  it('dispose settles after the child started and before the first attempt settles', async () => {
+    const { pool, dir } = await harness()
+    const silent = fixtureServer(dir)
+    const lease = pool.acquire(dir, { ...silent, entry: { ...silent.entry, args: [silentPath] } as DeclaredServer['entry'] })
+    await until(async () => (await pids(dir)).length === 1)
+    const [pid] = await pids(dir)
+    void lease.release()
+    const started = Date.now()
+    await pool.dispose()
+    expect(Date.now() - started).toBeLessThan(5_000)
+    await until(() => !isAlive(pid!))
+  }, 15_000)
 })
