@@ -76,6 +76,35 @@ describe('automation-only ACP bridge', () => {
     await expect(harness.client.authenticate({ methodId: 'unused' })).resolves.toEqual({})
   })
 
+  it('answers initialize only after the Loader tree settles', async () => {
+    harness = await makeBridgeHarness()
+    let release!: () => void
+    const settled = new Promise<void>((resolve) => { release = resolve })
+    harness.ctx.provide('loader', { await: () => settled } as never)
+    let answered = false
+    const initialize = harness.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
+      .then((response) => {
+        answered = true
+        return response
+      })
+
+    // The SDK dispatches requests without awaiting earlier handlers, so this
+    // later answer proves initialize is already waiting on the Loader.
+    await harness.client.authenticate({ methodId: 'unused' })
+    expect(answered).toBe(false)
+
+    release()
+    await expect(initialize).resolves.toMatchObject({ protocolVersion: PROTOCOL_VERSION })
+  })
+
+  it('rejects initialize when the Loader tree fails to settle', async () => {
+    harness = await makeBridgeHarness()
+    harness.ctx.provide('loader', { await: () => Promise.reject(new Error('entry failed')) } as never)
+
+    await expect(harness.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} }))
+      .rejects.toMatchObject({ code: -32603, data: { details: 'entry failed' } })
+  })
+
   it('creates a session, emits one committed answer, and settles the prompt', async () => {
     harness = await makeBridgeHarness({ script: [textResponse('hello there')] })
     await harness.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
