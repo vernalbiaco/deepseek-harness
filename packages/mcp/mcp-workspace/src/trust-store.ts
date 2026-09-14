@@ -8,6 +8,7 @@
  * @module @deepseek-ai/dsh-mcp-workspace/trust-store
  */
 
+import { readFileSync } from 'node:fs'
 import { mkdir, readFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
@@ -50,22 +51,26 @@ function emptyDocument(): TrustDocument {
 }
 
 /**
- * Reads and validates the trust document at `filename`. A missing file is a
- * valid empty document, matching "no decision recorded yet" rather than an
- * error.
+ * Resolves a failed read of the trust document. A missing file is a valid
+ * empty document, matching "no decision recorded yet" rather than an error.
+ * @param error - the read failure.
  * @param filename - absolute path of the trust document.
- * @returns the validated document.
- * @throws {TrustStoreError} when the file exists but cannot be read, is not valid YAML, or does not match the document schema.
+ * @returns the empty document when the file does not exist.
+ * @throws {TrustStoreError} for any other read failure.
  */
-async function readDocument(filename: string): Promise<TrustDocument> {
-  let text: string
-  try {
-    text = await readFile(filename, 'utf8')
-  } catch (error) {
-    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') return emptyDocument()
-    throw new TrustStoreError(`mcp-workspace: cannot read trust file ${filename}`)
-  }
+function missingDocument(error: unknown, filename: string): TrustDocument {
+  if (error instanceof Error && 'code' in error && error.code === 'ENOENT') return emptyDocument()
+  throw new TrustStoreError(`mcp-workspace: cannot read trust file ${filename}`)
+}
 
+/**
+ * Parses and validates the trust document text.
+ * @param text - the file's contents.
+ * @param filename - absolute path of the trust document, used in error messages.
+ * @returns the validated document.
+ * @throws {TrustStoreError} when the text is not valid YAML or does not match the document schema.
+ */
+function parseDocument(text: string, filename: string): TrustDocument {
   let parsed: unknown
   try {
     parsed = parseYaml(text)
@@ -79,6 +84,52 @@ async function readDocument(filename: string): Promise<TrustDocument> {
     throw new TrustStoreError(`mcp-workspace: trust file ${filename} does not match the expected format at ${paths}`)
   }
   return result.data
+}
+
+/**
+ * Reads and validates the trust document at `filename`.
+ * @param filename - absolute path of the trust document.
+ * @returns the validated document; empty when the file does not exist.
+ * @throws {TrustStoreError} per {@link missingDocument} and {@link parseDocument}.
+ */
+async function readDocument(filename: string): Promise<TrustDocument> {
+  let text: string
+  try {
+    text = await readFile(filename, 'utf8')
+  } catch (error) {
+    return missingDocument(error, filename)
+  }
+  return parseDocument(text, filename)
+}
+
+/**
+ * Synchronous {@link readDocument}.
+ * @param filename - absolute path of the trust document.
+ * @returns the validated document; empty when the file does not exist.
+ * @throws {TrustStoreError} per {@link missingDocument} and {@link parseDocument}.
+ */
+function readDocumentSync(filename: string): TrustDocument {
+  let text: string
+  try {
+    text = readFileSync(filename, 'utf8')
+  } catch (error) {
+    return missingDocument(error, filename)
+  }
+  return parseDocument(text, filename)
+}
+
+/**
+ * The stored decision for one workspace server at one fingerprint.
+ * @param document - the validated trust document.
+ * @param workspacePath - canonical workspace path.
+ * @param serverName - the server's name within the workspace.
+ * @param fingerprint - the server entry's current fingerprint.
+ * @returns the decision, or `undefined` when no record exists or the stored fingerprint differs.
+ */
+function decisionIn(document: TrustDocument, workspacePath: string, serverName: string, fingerprint: string): TrustDecision | undefined {
+  const entry = document.workspaces[workspacePath]?.[serverName]
+  if (entry === undefined || entry.fingerprint !== fingerprint) return undefined
+  return entry.decision
 }
 
 /**
@@ -106,10 +157,19 @@ export class TrustStore {
    * @throws {TrustStoreError} per {@link readDocument}.
    */
   async lookup(workspacePath: string, serverName: string, fingerprint: string): Promise<TrustDecision | undefined> {
-    const document = await readDocument(this.filename)
-    const entry = document.workspaces[workspacePath]?.[serverName]
-    if (entry === undefined || entry.fingerprint !== fingerprint) return undefined
-    return entry.decision
+    return decisionIn(await readDocument(this.filename), workspacePath, serverName, fingerprint)
+  }
+
+  /**
+   * Synchronous, lock-free {@link lookup} for callers that must decide before returning, such as an `agent/created` listener.
+   * @param workspacePath - canonical workspace path used as the top-level document key.
+   * @param serverName - the server's name within the workspace.
+   * @param fingerprint - the server entry's current fingerprint; a stored decision for a different fingerprint does not match.
+   * @returns the stored decision, or `undefined` when no record exists or the stored fingerprint differs.
+   * @throws {TrustStoreError} per {@link readDocumentSync}.
+   */
+  lookupSync(workspacePath: string, serverName: string, fingerprint: string): TrustDecision | undefined {
+    return decisionIn(readDocumentSync(this.filename), workspacePath, serverName, fingerprint)
   }
 
   /**

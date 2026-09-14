@@ -359,8 +359,8 @@ describe('WorkspaceBinder eligibility', () => {
 
     expect(ctx.tools.get(ECHO, parent.agent)).toBeDefined()
     expect(ctx.tools.get(ECHO, child.agent)).toBeUndefined()
-    // The preconnect lookup only: the parent attached synchronously and the child is not eligible.
-    expect(trust.started).toBe(1)
+    // The preconnect lookup and the parent's recheck; the child is not eligible.
+    expect(trust.started).toBe(2)
     await child.dispose()
   })
 
@@ -721,6 +721,116 @@ describe('WorkspaceBinder failures', () => {
   })
 })
 
+describe('WorkspaceBinder stored-decision recheck', () => {
+  async function preconnected(options: HarnessOptions = {}) {
+    const h = await harness(options)
+    const entry = fixtureEntry(h.pidDir)
+    await writeMcpJson(h.workspace, { fixture: entry })
+    await allow(h.trust, h.workspace, { fixture: entry })
+    await Promise.all((await h.binder.preconnect(h.workspace)).map(lease => lease.ready))
+    const [pid] = await pids(h.pidDir)
+    return { ...h, entry, pid: pid! }
+  }
+
+  async function deny(trustFile: string, workspace: string, entry: Record<string, unknown>): Promise<void> {
+    await new TrustStore(trustFile).record(workspace, [{ serverName: 'fixture', decision: 'deny', fingerprint: fingerprintEntry(entry) }], new Date())
+  }
+
+  it('gives a new agent no tools from a preconnected server after deny is written, and releases the preconnect reference', async () => {
+    const { ctx, trustFile, workspace, entry, pid } = await preconnected()
+    await deny(trustFile, workspace, entry)
+
+    const { agent } = await create(ctx, 'recheck-deny-new', { cwd: workspace })
+    expect(ctx.tools.get(ECHO, agent)).toBeUndefined()
+    await runTurn(ctx, agent)
+
+    expect(headerTools(agent)[0]).toEqual({ reason: 'initial', tools: [] })
+    await until(() => !isAlive(pid))
+  })
+
+  it('withdraws a synchronously attached server when the agent\'s own asynchronous recheck reads deny', async () => {
+    const { ctx, trust, trustFile, workspace, entry, pid, questions } = await preconnected()
+    const gate: PromiseWithResolvers<void> = Promise.withResolvers()
+    trust.gate = gate.promise
+
+    const { agent } = await create(ctx, 'recheck-deny-attached', { cwd: workspace })
+    expect(ctx.tools.get(ECHO, agent)).toBeDefined()
+    await deny(trustFile, workspace, entry)
+    gate.resolve()
+
+    await until(() => ctx.tools.get(ECHO, agent) === undefined)
+    await until(() => !isAlive(pid))
+    expect(questions.requests).toEqual([])
+  })
+
+  it('withdraws a synchronously attached server when the agent\'s own asynchronous recheck cannot read the trust file', async () => {
+    const { ctx, trust, trustFile, workspace, pid, errors } = await preconnected()
+    const gate: PromiseWithResolvers<void> = Promise.withResolvers()
+    trust.gate = gate.promise
+
+    const { agent } = await create(ctx, 'recheck-invalid-attached', { cwd: workspace })
+    expect(ctx.tools.get(ECHO, agent)).toBeDefined()
+    await writeFile(trustFile, 'version: 2\nworkspaces: {}\n')
+    gate.resolve()
+
+    await until(() => ctx.tools.get(ECHO, agent) === undefined)
+    await until(() => !isAlive(pid))
+    expect(errors).toEqual([`mcp-workspace: trust file ${trustFile} does not match the expected format at version`])
+  })
+
+  it('attaches nothing synchronously when the trust file is invalid', async () => {
+    const { ctx, trustFile, workspace, pid, errors } = await preconnected()
+    await writeFile(trustFile, 'version: 2\nworkspaces: {}\n')
+
+    const { agent } = await create(ctx, 'recheck-invalid', { cwd: workspace })
+    expect(ctx.tools.get(ECHO, agent)).toBeUndefined()
+    await until(() => !isAlive(pid))
+    await until(() => errors.length === 2)
+
+    // One error from the synchronous attach, one from the asynchronous recheck.
+    const message = `mcp-workspace: trust file ${trustFile} does not match the expected format at version`
+    expect(errors).toEqual([message, message])
+  })
+
+  it('keeps Allow this session tools although the trust file has no entry for the server', async () => {
+    const { ctx, trustFile, workspace, pidDir, questions } = await harness()
+    const entry = fixtureEntry(pidDir)
+    await writeMcpJson(workspace, { fixture: entry })
+
+    const { agent } = await create(ctx, 'recheck-session', { cwd: workspace })
+    await until(() => questions.requests.length === 1)
+    questions.answer(ALLOW_SESSION)
+    await until(() => ctx.tools.get(ECHO, agent) !== undefined)
+    await sleep(100)
+
+    expect(ctx.tools.get(ECHO, agent)).toBeDefined()
+    expect(await new TrustStore(trustFile).lookup(workspace, 'fixture', fingerprintEntry(entry))).toBeUndefined()
+  })
+
+  it.each([
+    ['deny is written', 'deny'],
+    ['the trust file becomes invalid', 'invalid'],
+  ] as const)('does not attach a connecting server after %s', async (_label, change) => {
+    const { ctx, trust, trustFile, workspace, pidDir, errors } = await harness()
+    const entry = fixtureEntry(pidDir)
+    await writeMcpJson(workspace, { fixture: entry })
+    await allow(trust, workspace, { fixture: entry })
+    const gate: PromiseWithResolvers<void> = Promise.withResolvers()
+
+    const { agent } = await create(ctx, `recheck-connecting-${change}`, { cwd: workspace })
+    await until(() => trust.completed === 1)
+    trust.gate = gate.promise
+    await until(() => trust.started === 2)
+    if (change === 'deny') await deny(trustFile, workspace, entry)
+    else await writeFile(trustFile, 'version: 2\nworkspaces: {}\n')
+    gate.resolve()
+    await until(async () => (await pids(pidDir)).every(pid => !isAlive(pid)))
+
+    expect(ctx.tools.get(ECHO, agent)).toBeUndefined()
+    expect(errors).toEqual(change === 'deny' ? [] : [`mcp-workspace: trust file ${trustFile} does not match the expected format at version`])
+  })
+})
+
 describe('WorkspaceBinder disposal', () => {
   it('stops admission when the agent is disposed while .mcp.json is read', async () => {
     const { ctx, trust, workspace, pidDir } = await harness()
@@ -798,7 +908,8 @@ describe('WorkspaceBinder disposal', () => {
     await sleep(50)
 
     expect(ctx.tools.get(ECHO, later.agent)).toBeUndefined()
-    expect(trust.started).toBe(1)
+    // The preconnect lookup and the first agent's recheck.
+    expect(trust.started).toBe(2)
     expect(reads.settled).toBe(2)
   })
 

@@ -3,8 +3,10 @@
  * receives, synchronously, the tools of every server the binder already holds
  * a saved `allow` connection for in its canonical cwd; reading `.mcp.json`,
  * trust lookups, credential checks, and user questions run afterwards and
- * attach their results on a later step. Every lease an agent holds is released
- * by that agent's own effect cleanup.
+ * attach their results on a later step. Every attachment rechecks the stored
+ * decision: a server the decision no longer admits is withdrawn from the agent
+ * and its plugin-held preconnect reference released. Every lease an agent holds
+ * is released by that agent's own effect cleanup.
  * @module @deepseek-ai/dsh-mcp-workspace/binder
  */
 
@@ -67,6 +69,8 @@ interface Binding {
   readonly controller: AbortController
   /** Owned leases keyed by {@link leaseKey}; an agent holds at most one lease per key. */
   readonly leases: Map<string, OwnedLease>
+  /** {@link leaseKey}s admitted by Allow this session; they stay admitted without a stored `allow`. */
+  readonly sessionAllowed: Set<string>
 }
 
 /**
@@ -133,9 +137,10 @@ export class WorkspaceBinder {
 
   /**
    * Synchronous `agent/created` handler. A top-level agent with a cwd receives
-   * the published tools of every saved-`allow` connection held for its
-   * canonical cwd before this returns; the asynchronous admission of the
-   * remaining declared servers starts afterwards.
+   * the published tools of every shared connection held for its canonical cwd
+   * whose stored decision, read synchronously, is still `allow`, before this
+   * returns; the asynchronous admission and recheck of the declared servers
+   * starts afterwards.
    * @param agent - the newly published agent.
    */
   onAgentCreated(agent: Agent): void {
@@ -150,12 +155,9 @@ export class WorkspaceBinder {
       this.ctx.logger.warn(`mcp-workspace: session cwd ${cwd} is not a directory`)
       return
     }
-    const binding: Binding = { agent, path, controller: new AbortController(), leases: new Map() }
+    const binding: Binding = { agent, path, controller: new AbortController(), leases: new Map(), sessionAllowed: new Set() }
     this.bindings.set(binding, agent.ctx.effect(() => () => { this.unbind(binding) }, 'mcp-workspace.binding()'))
-    for (const { server, holders } of this.sharedAt(path).values()) {
-      if (![...holders].some(holder => holder.toolNames().length > 0)) continue
-      this.attach(binding, this.own(binding, this.pool.acquire(path, server), true))
-    }
+    this.attachShared(binding)
     void this.bind(binding).catch((error: unknown) => { this.ctx.logger.error(failureMessage(error)) })
   }
 
@@ -200,8 +202,38 @@ export class WorkspaceBinder {
   }
 
   /**
+   * Synchronously attach every published shared connection for the binding's
+   * path whose stored decision admits it. A connection the decision no longer
+   * admits, or every connection when the trust document cannot be read, is
+   * revoked instead.
+   * @param binding - the new agent's binding.
+   */
+  private attachShared(binding: Binding): void {
+    const { path } = binding
+    for (const [key, { server, holders }] of [...this.sharedAt(path)]) {
+      if (![...holders].some(holder => holder.toolNames().length > 0)) continue
+      let decision: TrustDecision | undefined
+      try {
+        decision = this.trust.lookupSync(path, server.name, server.fingerprint)
+      } catch (error) {
+        this.ctx.logger.error(failureMessage(error))
+        for (const offer of [...this.sharedAt(path).keys()]) this.revoke(path, offer)
+        return
+      }
+      if (!this.admits(binding, key, decision)) {
+        this.revoke(path, key)
+        continue
+      }
+      this.attach(binding, this.own(binding, this.pool.acquire(path, server), true))
+    }
+  }
+
+  /**
    * Admission after `agent/created` returns: withdraw attachments `.mcp.json`
-   * no longer declares, admit saved `allow` decisions, and ask about undecided servers.
+   * no longer declares, recheck the stored decision of attached servers,
+   * admit saved `allow` decisions, and ask about undecided servers. When the
+   * trust document cannot be read, every attachment is withdrawn and every
+   * shared connection for the path revoked.
    * @param binding - the agent binding to admit servers for.
    */
   private async bind(binding: Binding): Promise<void> {
@@ -211,14 +243,31 @@ export class WorkspaceBinder {
     const servers = result?.servers ?? []
     this.logRefused(result?.refused ?? [])
     this.withdrawUndeclared(binding, servers)
-    const pending = servers.filter(server => !binding.leases.has(leaseKey(path, server)))
-    const decisions = await this.lookupAll(path, pending)
+    let decisions: Array<TrustDecision | undefined>
+    try {
+      decisions = await this.lookupAll(path, servers)
+    } catch (error) {
+      this.ctx.logger.error(failureMessage(error))
+      for (const [key, owned] of [...binding.leases]) this.withdraw(binding, key, owned)
+      for (const key of [...this.sharedAt(path).keys()]) this.revoke(path, key)
+      return
+    }
     if (this.closed(binding)) return
     const admissions: Promise<void>[] = []
     const undecided: DeclaredServer[] = []
-    for (const [index, server] of pending.entries()) {
-      if (decisions[index] === 'allow') admissions.push(this.admit(binding, server, true))
-      else if (decisions[index] === undefined) undecided.push(server)
+    for (const [index, server] of servers.entries()) {
+      const key = leaseKey(path, server)
+      const owned = binding.leases.get(key)
+      if (owned !== undefined) {
+        if (!this.admits(binding, key, decisions[index])) {
+          this.withdraw(binding, key, owned)
+          this.revoke(path, key)
+        }
+      } else if (decisions[index] === 'allow') {
+        admissions.push(this.admit(binding, server, true))
+      } else if (decisions[index] === undefined) {
+        undecided.push(server)
+      }
     }
     if (undecided.length > 0) admissions.push(this.decide(binding, undecided))
     await Promise.all(admissions)
@@ -265,6 +314,9 @@ export class WorkspaceBinder {
       if (this.closed(binding)) return
       const asker = question.asker === binding
       if (outcome === 'workspace' || (outcome === 'session' && asker)) {
+        if (outcome === 'session') {
+          for (const server of servers) binding.sessionAllowed.add(leaseKey(binding.path, server))
+        }
         await Promise.all(servers.map(server => this.admit(binding, server, outcome === 'workspace')))
         return
       }
@@ -365,19 +417,53 @@ export class WorkspaceBinder {
 
   /**
    * Acquire and attach one admitted server for an agent once its credentials
-   * are set and its first connection attempt settled. Callers pass only
-   * servers the agent holds no lease for: {@link bind} filters attached keys,
-   * and its allowed and undecided sets are disjoint.
+   * are set and its first connection attempt settled, rechecking the stored
+   * decision immediately before attaching. Callers pass only servers the agent
+   * holds no lease for: {@link bind} skips attached keys, and its allowed and
+   * undecided sets are disjoint.
    * @param binding - the agent binding.
    * @param server - the admitted server.
    * @param shared - whether the admission is a saved `allow` that later agents in the path may attach synchronously.
    */
   private async admit(binding: Binding, server: DeclaredServer, shared: boolean): Promise<void> {
     if (!await this.credentialsSet(server) || this.closed(binding)) return
+    const key = leaseKey(binding.path, server)
     const owned = this.own(binding, this.pool.acquire(binding.path, server), shared)
     await owned.lease.ready
+    const admitted = await this.recheck(binding, server)
     if (this.closed(binding)) return
+    if (!admitted) {
+      this.withdraw(binding, key, owned)
+      this.revoke(binding.path, key)
+      return
+    }
     this.attach(binding, owned)
+  }
+
+  /**
+   * Read the stored decision for a server the agent is about to attach; a trust store failure is logged.
+   * @param binding - the agent binding.
+   * @param server - the server to recheck.
+   * @returns whether the decision, or the agent's Allow this session, still admits the server.
+   */
+  private async recheck(binding: Binding, server: DeclaredServer): Promise<boolean> {
+    try {
+      const decision = await this.trust.lookup(binding.path, server.name, server.fingerprint)
+      return this.admits(binding, leaseKey(binding.path, server), decision)
+    } catch (error) {
+      this.ctx.logger.error(failureMessage(error))
+      return false
+    }
+  }
+
+  /**
+   * @param binding - the agent binding.
+   * @param key - the connection's {@link leaseKey}.
+   * @param decision - the stored decision for the connection's server and fingerprint.
+   * @returns whether the stored `allow` or the agent's Allow this session admits the connection.
+   */
+  private admits(binding: Binding, key: string, decision: TrustDecision | undefined): boolean {
+    return decision === 'allow' || binding.sessionAllowed.has(key)
   }
 
   /**
@@ -444,11 +530,32 @@ export class WorkspaceBinder {
     for (const key of offers.keys()) {
       if (!declared.has(key)) offers.delete(key)
     }
-    for (const [key, owned] of binding.leases) {
-      if (!declared.has(key)) {
-        binding.leases.delete(key)
-        this.drop(binding.path, owned)
-      }
+    for (const [key, owned] of [...binding.leases]) {
+      if (!declared.has(key)) this.withdraw(binding, key, owned)
+    }
+  }
+
+  /**
+   * Remove one attachment from an agent and release its lease.
+   * @param binding - the owning agent binding.
+   * @param key - the lease's {@link leaseKey}.
+   * @param owned - the owned lease.
+   */
+  private withdraw(binding: Binding, key: string, owned: OwnedLease): void {
+    binding.leases.delete(key)
+    this.drop(binding.path, owned)
+  }
+
+  /**
+   * Stop offering a connection to later agents' synchronous attach and release the plugin-held preconnect leases on it.
+   * @param path - canonical workspace path.
+   * @param key - the connection's {@link leaseKey}.
+   */
+  private revoke(path: string, key: string): void {
+    this.sharedAt(path).delete(key)
+    for (const lease of [...this.held].filter(held => leaseKey(held.workspacePath, held.server) === key)) {
+      this.held.delete(lease)
+      void lease.release()
     }
   }
 
