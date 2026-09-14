@@ -120,6 +120,7 @@ A lost transport keeps the last definition set registered while calls fail, and 
 - Registered Web workspaces are preconnected without being awaited, so their tools are in the first request only when the connection published them before the session's agent was created.
 - ACP `initialize` waits for the whole Loader tree, so an entry that never settles also stalls `initialize`.
 - Stdio servers spawn outside the sandbox after approval; the decision authorizes an unsandboxed program.
+- An approval pins the `.mcp.json` entry text, not the programs, scripts, or packages that entry runs: for `{"command": "node", "args": ["./mcp/server.js"]}`, a commit that rewrites `server.js`, a changed `package.json` script, or a new version that `npx -y` resolves runs under the existing approval without a new question.
 - An approved server whose credential is missing or whose endpoint is unreachable is visible in host logs only; no user interface shows a notice.
 - Decisions are keyed by canonical path, so the same checkout mounted at different paths, such as Web at `/workspaces/<name>` and a container run at `/workspace`, needs separate decisions.
 - The recheck runs only when a server attaches, so a running agent keeps a server's tools after its decision is deleted or changed to `deny` until the agent is disposed.
@@ -127,6 +128,12 @@ A lost transport keeps the last definition set registered while calls fail, and 
 - Running agents keep the tools of an entry removed from or changed in `.mcp.json`, and its connection stays open until they are disposed.
 - An agent created while `.mcp.json` is missing or cannot be parsed, such as in the middle of an edit, revokes every offered connection of that workspace, so those connections close unless another agent holds them; a later agent's admission connects them again without a preconnect reference.
 - Agent-scoped tools shadow global tools of the same name, so a deployment that keeps a profile-level row for the same server opens two connections and relies on the logged warning.
+- Acquiring a key while its last lease is still closing starts a new connection beside the exiting one, so a server that holds an exclusive resource, such as a lock file or port, can briefly see two instances.
+- A connection stopped because a failed generation never reported closing within the supervisor's close timeout is restarted on the next acquire, which can overlap the new child with the old one if that child is still running.
+- `activePools` is keyed by root context, so an app mounts at most one `mcp-workspace` row; a second row replaces the first row's pool for the invariant companion.
+- An agent whose trust lookups ran just before another agent's Allow for this workspace was recorded, but whose wait starts after that question closed, asks the same question again.
+- When a trust entry is deleted between an agent's synchronous attachment and its asynchronous recheck, that agent loses the server without a question; the next agent created in the workspace asks.
+- A `deny` written while a preconnected server is still connecting is revoked only at the next pass: no agent attaches the server meanwhile, but its connection runs until the next agent in that workspace is created or the plugin is disposed.
 - In the ACP snapshot scenarios the trust file lives inside the generated workspace, because the snapshot harness sets `DSH_HOME` there; a real deployment keeps it in `$DSH_HOME` outside every workspace.
 
 ## Testing
