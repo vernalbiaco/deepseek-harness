@@ -40,8 +40,8 @@ A workspace declares servers in the Claude Code `.mcp.json` format. Secrets are 
 |---|---|---|
 | `trustFile` | yes | Absolute path of the trust document holding per-workspace decisions; it must not be inside a workspace |
 | `preconnect` | no | Connect servers with a saved `allow` for the process cwd and every registered Web workspace at activation (default `true`) |
-| `preconnectTimeoutMs` | no | Longest time activation waits for preconnected servers' first connection attempts, in milliseconds (default 10000) |
-| `toolCallTimeoutMs` | no | Timeout per tool call for every workspace server, in milliseconds (default 60000) |
+| `preconnectTimeoutMs` | no | Longest time activation waits for preconnected servers' first connection attempts, in milliseconds, at most 2147483647 (default 10000) |
+| `toolCallTimeoutMs` | no | Timeout per tool call for every workspace server, in milliseconds, at most 2147483647 (default 60000) |
 | `reconnect.enabled` | no | Reconnect automatically after a lost connection (default `true`) |
 | `reconnect.initialDelayMs` | no | First reconnect delay in milliseconds; doubles per consecutive failed attempt (default 500) |
 | `reconnect.maxDelayMs` | no | Backoff ceiling in milliseconds; also the uptime after which the attempt budget resets (default 30000) |

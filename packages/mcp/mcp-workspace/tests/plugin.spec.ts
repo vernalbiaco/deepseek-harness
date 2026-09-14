@@ -132,6 +132,14 @@ describe('mcp-workspace plugin', () => {
     expect(loader.unwrapExports(plugin)).toBe(plugin)
   })
 
+  it('rejects a timeout above the longest timer delay', () => {
+    const trustFile = '/home/user/.dsh/mcp-trust.yaml'
+    expect(() => plugin.Config({ trustFile, preconnectTimeoutMs: 2_147_483_648 } as never)).toThrow()
+    expect(() => plugin.Config({ trustFile, toolCallTimeoutMs: 2_147_483_648 } as never)).toThrow()
+    expect(plugin.Config({ trustFile, preconnectTimeoutMs: 2_147_483_647, toolCallTimeoutMs: 2_147_483_647 } as never))
+      .toMatchObject({ preconnectTimeoutMs: 2_147_483_647, toolCallTimeoutMs: 2_147_483_647 })
+  })
+
   it('requires trustFile and defaults every other field', () => {
     expect(() => plugin.Config({} as never)).toThrow()
     const resolved = plugin.Config({ trustFile: '/home/user/.dsh/mcp-trust.yaml' } as never)

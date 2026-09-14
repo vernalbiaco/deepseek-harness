@@ -13,6 +13,7 @@ import type {} from '@deepseek-ai/dsh-agent'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import { resolveReconnectPolicy } from '@deepseek-ai/dsh-mcp-client'
 import type { ReconnectConfig } from '@deepseek-ai/dsh-mcp-client'
+import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import type {} from '@deepseek-ai/dsh-workspace'
 import { activePools } from './active-pools.ts'
 import { WorkspaceBinder } from './binder.ts'
@@ -46,8 +47,8 @@ export interface Config {
 export const Config: z<Config> = z.object({
   trustFile: z.string().required(),
   preconnect: z.boolean().default(true),
-  preconnectTimeoutMs: z.number().min(0).default(10_000),
-  toolCallTimeoutMs: z.number().min(1).default(60_000),
+  preconnectTimeoutMs: z.number().min(0).max(MAX_TIMER_DELAY_MS).default(10_000),
+  toolCallTimeoutMs: z.number().min(1).max(MAX_TIMER_DELAY_MS).default(60_000),
   // Defaults and bounds are applied by resolveReconnectPolicy, which rejects an invalid policy at load.
   reconnect: z.object({
     enabled: z.boolean(),

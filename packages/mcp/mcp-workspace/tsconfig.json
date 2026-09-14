@@ -63,6 +63,9 @@
       "path": "../../util/atomic-write"
     },
     {
+      "path": "../../util/timeout"
+    },
+    {
       "path": "../../workspace/workspace"
     },
     {
