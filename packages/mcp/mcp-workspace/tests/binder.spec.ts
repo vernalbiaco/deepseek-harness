@@ -278,6 +278,11 @@ async function killLeftovers(dir: string): Promise<void> {
   }
 }
 
+/** A command, argument, or URL as the question detail shows it; host install paths can contain spaces. */
+function shown(value: string): string {
+  return value === '' || /[\s"\p{Cc}]/u.test(value) ? JSON.stringify(value) : value
+}
+
 function squat(name: string): ToolDefinition {
   return {
     name,
@@ -421,7 +426,7 @@ describe('WorkspaceBinder decisions', () => {
       id: QUESTION_ID,
       header: 'MCP servers',
       question: `Allow MCP servers declared in ${workspace}/.mcp.json?`,
-      detail: `- fixture (stdio): ${process.execPath} ${fixturePath}`,
+      detail: `- fixture (stdio): ${shown(process.execPath)} ${shown(fixturePath)}`,
       options: [{ label: ALLOW_WORKSPACE }, { label: ALLOW_SESSION }, { label: DENY }],
     }])
     questions.answer(ALLOW_WORKSPACE)
@@ -577,9 +582,27 @@ describe('WorkspaceBinder decisions', () => {
 
     expect(detail).toBe([
       '- api (http): https://mcp.example.invalid/${TENANT}; credentials: API_KEY set, TENANT missing',
-      `- fixture (stdio): ${process.execPath} ${fixturePath}`,
+      `- fixture (stdio): ${shown(process.execPath)} ${shown(fixturePath)}`,
     ].join('\n'))
     expect(detail).not.toContain('secret-key-value')
+  })
+
+  it('quotes a command, argument, or URL that is empty or contains whitespace, a double quote, or a control character', async () => {
+    const { ctx, workspace, questions, trustFile } = await harness()
+    const spoof = { command: 'node', args: ['server.js', 'two words', 'x\n- fake (stdio): trusted', '', 'say "hi"'] }
+    const api = { type: 'http', url: 'https://mcp.example.invalid/a\tb' }
+    await writeMcpJson(workspace, { api, spoof })
+
+    await create(ctx, 'binder-detail-quoted', { cwd: workspace })
+    await until(() => questions.requests.length === 1)
+    const detail = questions.requests[0]?.questions[0]?.detail
+    questions.answer(DENY)
+    await until(async () => await new TrustStore(trustFile).lookup(workspace, 'spoof', fingerprintEntry(spoof)) === 'deny')
+
+    expect(detail).toBe([
+      '- api (http): "https://mcp.example.invalid/a\\tb"',
+      '- spoof (stdio): node server.js "two words" "x\\n- fake (stdio): trusted" "" "say \\"hi\\""',
+    ].join('\n'))
   })
 
   it('logs an answer without a listed option as not approved', async () => {

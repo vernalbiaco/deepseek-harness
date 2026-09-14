@@ -96,6 +96,16 @@ function failureMessage(error: unknown): string {
 }
 
 /**
+ * Render one untrusted `.mcp.json` string for the question detail.
+ * @param value - a command, argument, or URL.
+ * @returns `value`, JSON-quoted when it is empty or contains whitespace, a double quote,
+ *   or a control character, so it cannot fake or hide detail lines.
+ */
+function quoteForDetail(value: string): string {
+  return value === '' || /[\s"\p{Cc}]/u.test(value) ? JSON.stringify(value) : value
+}
+
+/**
  * Settle with `promise`, or reject as soon as `signal` aborts.
  * @param promise - the operation to wait for.
  * @param signal - a signal that is not yet aborted.
@@ -436,12 +446,15 @@ export class WorkspaceBinder {
   /**
    * One `detail` line of the decision question; credential status never includes a value.
    * @param server - the server to describe.
-   * @returns `- <name> (<stdio|http>): <command and args | url>`, followed by
+   * @returns `- <name> (<stdio|http>): <command and args | url>`, each value
+   *   rendered by {@link quoteForDetail}, followed by
    *   `; credentials: <REF> set|missing, …` when the entry references credentials.
    */
   private async describeServer(server: DeclaredServer): Promise<string> {
     const { entry } = server
-    const target = entry.transport === 'stdio' ? `stdio): ${[entry.command, ...entry.args].join(' ')}` : `http): ${entry.url}`
+    const target = entry.transport === 'stdio'
+      ? `stdio): ${[entry.command, ...entry.args].map(quoteForDetail).join(' ')}`
+      : `http): ${quoteForDetail(entry.url)}`
     const credentials = await Promise.all(server.credentialRefs.map(async (ref) => {
       const { configured } = await this.ctx.credentials.describe(credentialRef(ref))
       return `${ref} ${configured ? 'set' : 'missing'}`
