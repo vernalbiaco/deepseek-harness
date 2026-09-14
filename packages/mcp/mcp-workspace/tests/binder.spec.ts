@@ -24,7 +24,7 @@ import { WorkspacePool } from '../src/pool.ts'
 import { TrustStore } from '../src/trust-store.ts'
 import type * as McpJson from '../src/mcp-json.ts'
 
-const reads = vi.hoisted(() => ({ settled: 0 }))
+const reads = vi.hoisted(() => ({ settled: 0, gate: Promise.resolve() as Promise<void> }))
 
 vi.mock('../src/mcp-json.ts', async (importOriginal) => {
   const actual = await importOriginal<typeof McpJson>()
@@ -32,6 +32,7 @@ vi.mock('../src/mcp-json.ts', async (importOriginal) => {
     ...actual,
     readMcpJson: async (workspacePath: string) => {
       try {
+        await reads.gate
         return await actual.readMcpJson(workspacePath)
       } finally {
         reads.settled += 1
@@ -69,10 +70,13 @@ class GatedTrust extends TrustStore {
 class GatedCredentials extends MemoryCredentials {
   resolving = 0
   gate: Promise<void> = Promise.resolve()
+  /** When set, every resolution rejects with it. */
+  failure: Error | undefined
 
   override async resolve(ref: CredentialRef): Promise<ResolvedCredential | undefined> {
     this.resolving += 1
     await this.gate
+    if (this.failure !== undefined) throw this.failure
     return super.resolve(ref)
   }
 }
@@ -125,6 +129,7 @@ async function harness(options: HarnessOptions = {}): Promise<Harness> {
   await mkdir(pidDir)
   cleanups.push(() => killLeftovers(pidDir))
   reads.settled = 0
+  reads.gate = Promise.resolve()
   const ctx = new Context()
   cleanups.push(() => ctx.fiber.dispose())
   const warns: string[] = []
@@ -693,6 +698,21 @@ describe('WorkspaceBinder failures', () => {
     expect(await pids(pidDir)).toEqual([])
   })
 
+  it('logs a credential resolution failure and admits nothing', async () => {
+    const { ctx, trust, credentials, workspace, pidDir, errors } = await harness()
+    const entry = fixtureEntry(pidDir, { MCP_FIXTURE_TOKEN: '${TOKEN}' })
+    await writeMcpJson(workspace, { fixture: entry })
+    await allow(trust, workspace, { fixture: entry })
+    credentials.failure = new Error('credential store unavailable')
+
+    const { agent } = await create(ctx, 'binder-credential-failure', { cwd: workspace })
+    await until(() => errors.length === 1)
+
+    expect(errors).toEqual(['mcp-workspace: Error: credential store unavailable'])
+    expect(ctx.tools.get(ECHO, agent)).toBeUndefined()
+    expect(await pids(pidDir)).toEqual([])
+  })
+
   it('attaches an allowed server whose credential is set', async () => {
     const { ctx, trust, workspace, pidDir } = await harness({ credentials: { TOKEN: 'token-value' } })
     const entry = fixtureEntry(pidDir, { MCP_FIXTURE_TOKEN: '${TOKEN}' })
@@ -703,7 +723,25 @@ describe('WorkspaceBinder failures', () => {
     await until(() => ctx.tools.get(ECHO, agent) !== undefined)
   })
 
-  it('withdraws a synchronous attachment that .mcp.json no longer declares', async () => {
+  it('withdraws a synchronous attachment that .mcp.json no longer declares and releases the preconnect reference', async () => {
+    const { ctx, trust, binder, workspace, pidDir } = await harness()
+    const entry = fixtureEntry(pidDir)
+    await writeMcpJson(workspace, { fixture: entry })
+    await allow(trust, workspace, { fixture: entry })
+    await Promise.all((await binder.preconnect(workspace)).map(lease => lease.ready))
+    const gate: PromiseWithResolvers<void> = Promise.withResolvers()
+    reads.gate = gate.promise
+
+    const { agent } = await create(ctx, 'binder-withdraw-attached', { cwd: workspace })
+    expect(ctx.tools.get(ECHO, agent)).toBeDefined()
+    await rm(join(workspace, '.mcp.json'))
+    gate.resolve()
+
+    await until(() => ctx.tools.get(ECHO, agent) === undefined)
+    await until(async () => (await pids(pidDir)).every(pid => !isAlive(pid)))
+  })
+
+  it('attaches no preconnected server that .mcp.json no longer declares and releases the preconnect reference', async () => {
     const { ctx, trust, binder, workspace, pidDir } = await harness()
     const entry = fixtureEntry(pidDir)
     await writeMcpJson(workspace, { fixture: entry })
@@ -711,13 +749,42 @@ describe('WorkspaceBinder failures', () => {
     await Promise.all((await binder.preconnect(workspace)).map(lease => lease.ready))
     await rm(join(workspace, '.mcp.json'))
 
-    const first = await create(ctx, 'binder-withdraw-first', { cwd: workspace })
-    expect(ctx.tools.get(ECHO, first.agent)).toBeDefined()
-    await until(() => ctx.tools.get(ECHO, first.agent) === undefined)
-    const second = await create(ctx, 'binder-withdraw-second', { cwd: workspace })
+    const first = await create(ctx, 'binder-undeclared-first', { cwd: workspace })
+    expect(ctx.tools.get(ECHO, first.agent)).toBeUndefined()
+    await until(async () => (await pids(pidDir)).every(pid => !isAlive(pid)))
+    const second = await create(ctx, 'binder-undeclared-second', { cwd: workspace })
 
     expect(ctx.tools.get(ECHO, second.agent)).toBeUndefined()
-    expect((await pids(pidDir)).filter(isAlive)).toHaveLength(1)
+  })
+
+  it('attaches no preconnected server whose .mcp.json entry changed', async () => {
+    const { ctx, trust, binder, workspace, pidDir, questions } = await harness()
+    const entry = fixtureEntry(pidDir)
+    await writeMcpJson(workspace, { fixture: entry })
+    await allow(trust, workspace, { fixture: entry })
+    await Promise.all((await binder.preconnect(workspace)).map(lease => lease.ready))
+    await writeMcpJson(workspace, { fixture: fixtureEntry(pidDir, { CHANGED: '1' }) })
+
+    const { agent } = await create(ctx, 'binder-changed', { cwd: workspace })
+    expect(ctx.tools.get(ECHO, agent)).toBeUndefined()
+    await until(() => questions.requests.length === 1)
+    await until(async () => (await pids(pidDir)).every(pid => !isAlive(pid)))
+  })
+
+  it('attaches nothing from an unparseable .mcp.json and releases the preconnect reference', async () => {
+    const { ctx, trust, binder, workspace, pidDir, errors } = await harness()
+    const entry = fixtureEntry(pidDir)
+    await writeMcpJson(workspace, { fixture: entry })
+    await allow(trust, workspace, { fixture: entry })
+    await Promise.all((await binder.preconnect(workspace)).map(lease => lease.ready))
+    await writeFile(join(workspace, '.mcp.json'), '{')
+
+    const { agent } = await create(ctx, 'binder-unparseable', { cwd: workspace })
+    expect(ctx.tools.get(ECHO, agent)).toBeUndefined()
+    await until(async () => (await pids(pidDir)).every(pid => !isAlive(pid)))
+    await until(() => errors.length === 1)
+
+    expect(errors).toEqual([`mcp-workspace: McpJsonError: ${join(workspace, '.mcp.json')}: invalid JSON`])
   })
 })
 

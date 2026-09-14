@@ -1,12 +1,14 @@
 /**
  * `agent/created` binder for workspace-declared MCP servers. An eligible agent
  * receives, synchronously, the tools of every server the binder already holds
- * a saved `allow` connection for in its canonical cwd; reading `.mcp.json`,
- * trust lookups, credential checks, and user questions run afterwards and
- * attach their results on a later step. Every attachment rechecks the stored
- * decision: a server the decision no longer admits is withdrawn from the agent
- * and its plugin-held preconnect reference released. Every lease an agent holds
- * is released by that agent's own effect cleanup.
+ * a saved `allow` connection for in its canonical cwd that the cwd's
+ * `.mcp.json` still declares; admission of the declared servers, trust
+ * lookups, credential checks, and user questions run afterwards and attach
+ * their results on a later step. Every attachment rechecks `.mcp.json` and the
+ * stored decision: a server the file no longer declares or the decision no
+ * longer admits is withdrawn from the agent and its plugin-held preconnect
+ * reference released. Every lease an agent holds is released by that agent's
+ * own effect cleanup.
  * @module @deepseek-ai/dsh-mcp-workspace/binder
  */
 
@@ -17,11 +19,11 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import type {} from '@deepseek-ai/dsh-tools'
 import type { AskUserQuestionAnswer } from '@deepseek-ai/dsh-user-questions'
-import { readMcpJson } from './mcp-json.ts'
+import { readMcpJson, readMcpJsonSync } from './mcp-json.ts'
 import type { ServerLease, WorkspacePool } from './pool.ts'
 import { TrustStoreError } from './trust-store.ts'
 import type { TrustDecision, TrustStore } from './trust-store.ts'
-import type { DeclaredServer } from './types.ts'
+import type { DeclaredServer, McpJsonReadResult } from './types.ts'
 
 /** Question id of the per-workspace server decision. */
 export const QUESTION_ID = 'mcp-workspace-servers'
@@ -136,11 +138,13 @@ export class WorkspaceBinder {
   }
 
   /**
-   * Synchronous `agent/created` handler. A top-level agent with a cwd receives
-   * the published tools of every shared connection held for its canonical cwd
-   * whose stored decision, read synchronously, is still `allow`, before this
-   * returns; the asynchronous admission and recheck of the declared servers
-   * starts afterwards.
+   * Synchronous `agent/created` handler; never throws, because a throwing
+   * listener vetoes the agent's publication. A top-level agent with a cwd
+   * receives the published tools of every shared connection held for its
+   * canonical cwd that the cwd's `.mcp.json` still declares and whose stored
+   * decision is still `allow`, both read synchronously, before this returns;
+   * the asynchronous admission and recheck of the declared servers starts
+   * afterwards.
    * @param agent - the newly published agent.
    */
   onAgentCreated(agent: Agent): void {
@@ -203,24 +207,34 @@ export class WorkspaceBinder {
 
   /**
    * Synchronously attach every published shared connection for the binding's
-   * path whose stored decision admits it. A connection the decision no longer
-   * admits, or every connection when the trust document cannot be read, is
-   * revoked instead.
+   * path that the current `.mcp.json` declares and whose stored decision
+   * admits it. Only a path with shared connections reads `.mcp.json`, and the
+   * trust document is read once for every published connection. A connection
+   * the file no longer declares, including every connection when the file is
+   * missing or cannot be read or parsed, or one the decision no longer admits
+   * is revoked; every connection is revoked when the trust document cannot be read.
    * @param binding - the new agent's binding.
    */
   private attachShared(binding: Binding): void {
     const { path } = binding
-    for (const [key, { server, holders }] of [...this.sharedAt(path)]) {
-      if (![...holders].some(holder => holder.toolNames().length > 0)) continue
-      let decision: TrustDecision | undefined
-      try {
-        decision = this.trust.lookupSync(path, server.name, server.fingerprint)
-      } catch (error) {
-        this.ctx.logger.error(failureMessage(error))
-        for (const offer of [...this.sharedAt(path).keys()]) this.revoke(path, offer)
-        return
-      }
-      if (!this.admits(binding, key, decision)) {
+    const offers = this.sharedAt(path)
+    if (offers.size === 0) return
+    const declared = this.declaredSync(path)
+    for (const key of [...offers.keys()]) {
+      if (!declared.has(key)) this.revoke(path, key)
+    }
+    const published = [...offers].filter(([, { holders }]) => [...holders].some(holder => holder.toolNames().length > 0))
+    if (published.length === 0) return
+    let decisions: Array<TrustDecision | undefined>
+    try {
+      decisions = this.trust.lookupAllSync(path, published.map(([, { server }]) => server))
+    } catch (error) {
+      this.ctx.logger.error(failureMessage(error))
+      for (const key of [...offers.keys()]) this.revoke(path, key)
+      return
+    }
+    for (const [index, [key, { server }]] of published.entries()) {
+      if (!this.admits(binding, key, decisions[index])) {
         this.revoke(path, key)
         continue
       }
@@ -229,16 +243,37 @@ export class WorkspaceBinder {
   }
 
   /**
+   * @param path - canonical workspace path.
+   * @returns the {@link leaseKey}s the path's `.mcp.json` currently declares; empty when the file is missing or cannot be read or parsed.
+   */
+  private declaredSync(path: string): Set<string> {
+    let result: McpJsonReadResult | undefined
+    try {
+      result = readMcpJsonSync(path)
+    } catch {
+      // A read or parse failure declares nothing; the agent's asynchronous pass reads the file again and logs the failure.
+      return new Set()
+    }
+    return new Set((result?.servers ?? []).map(server => leaseKey(path, server)))
+  }
+
+  /**
    * Admission after `agent/created` returns: withdraw attachments `.mcp.json`
-   * no longer declares, recheck the stored decision of attached servers,
-   * admit saved `allow` decisions, and ask about undecided servers. When the
-   * trust document cannot be read, every attachment is withdrawn and every
-   * shared connection for the path revoked.
+   * no longer declares and revoke those shared connections, recheck the
+   * stored decision of attached servers, admit saved `allow` decisions, and
+   * ask about undecided servers. A `.mcp.json` that cannot be read or parsed
+   * is logged and declares nothing. When the trust document cannot be read,
+   * every attachment is withdrawn and every shared connection for the path revoked.
    * @param binding - the agent binding to admit servers for.
    */
   private async bind(binding: Binding): Promise<void> {
     const { path } = binding
-    const result = await readMcpJson(path)
+    let result: McpJsonReadResult | undefined
+    try {
+      result = await readMcpJson(path)
+    } catch (error) {
+      this.ctx.logger.error(failureMessage(error))
+    }
     if (this.closed(binding)) return
     const servers = result?.servers ?? []
     this.logRefused(result?.refused ?? [])
@@ -520,15 +555,15 @@ export class WorkspaceBinder {
   }
 
   /**
-   * Withdraw attachments, and shared offers, for connections `.mcp.json` no longer declares.
+   * Withdraw attachments for connections `.mcp.json` no longer declares, and
+   * revoke those connections' shared offers and plugin-held preconnect leases.
    * @param binding - the agent binding whose attachments to reconcile.
    * @param servers - the servers `.mcp.json` currently declares.
    */
   private withdrawUndeclared(binding: Binding, servers: readonly DeclaredServer[]): void {
     const declared = new Set(servers.map(server => leaseKey(binding.path, server)))
-    const offers = this.sharedAt(binding.path)
-    for (const key of offers.keys()) {
-      if (!declared.has(key)) offers.delete(key)
+    for (const key of [...this.sharedAt(binding.path).keys()]) {
+      if (!declared.has(key)) this.revoke(binding.path, key)
     }
     for (const [key, owned] of [...binding.leases]) {
       if (!declared.has(key)) this.withdraw(binding, key, owned)

@@ -112,22 +112,30 @@ describe('TrustStore', () => {
     await expect(store.lookup(WORKSPACE, 'second', 'sha256:two')).resolves.toBe('allow')
   })
 
-  it('lookupSync reads the same decisions as lookup', async () => {
+  it('lookupAllSync reads the same decisions as lookup, in server order', async () => {
     const store = new TrustStore(await trustFile())
-    expect(store.lookupSync(WORKSPACE, 'brandguard', 'sha256:abc')).toBeUndefined()
-    await store.record(WORKSPACE, [{ serverName: 'brandguard', decision: 'allow', fingerprint: 'sha256:abc' }], NOW)
-    expect(store.lookupSync(WORKSPACE, 'brandguard', 'sha256:abc')).toBe('allow')
-    expect(store.lookupSync(WORKSPACE, 'brandguard', 'sha256:different')).toBeUndefined()
+    const servers = [
+      { name: 'brandguard', fingerprint: 'sha256:abc' },
+      { name: 'brandguard', fingerprint: 'sha256:different' },
+      { name: 'second', fingerprint: 'sha256:def' },
+    ]
+    expect(store.lookupAllSync(WORKSPACE, servers)).toEqual([undefined, undefined, undefined])
+    await store.record(WORKSPACE, [
+      { serverName: 'brandguard', decision: 'allow', fingerprint: 'sha256:abc' },
+      { serverName: 'second', decision: 'deny', fingerprint: 'sha256:def' },
+    ], NOW)
+    expect(store.lookupAllSync(WORKSPACE, servers)).toEqual(['allow', undefined, 'deny'])
   })
 
-  it('lookupSync throws TrustStoreError for an invalid document or an unreadable file', async () => {
+  it('lookupAllSync throws TrustStoreError for an invalid document or an unreadable file', async () => {
+    const servers = [{ name: 'brandguard', fingerprint: 'sha256:abc' }]
     const invalid = await trustFile()
     await writeFile(invalid, 'version: 2\nworkspaces: {}\n', 'utf8')
-    expect(() => new TrustStore(invalid).lookupSync(WORKSPACE, 'brandguard', 'sha256:abc')).toThrow(TrustStoreError)
+    expect(() => new TrustStore(invalid).lookupAllSync(WORKSPACE, servers)).toThrow(TrustStoreError)
     // A directory at the trust-file path fails the read with EISDIR, not ENOENT.
     const directory = await trustFile()
     await mkdir(directory)
-    expect(() => new TrustStore(directory).lookupSync(WORKSPACE, 'brandguard', 'sha256:abc')).toThrow(TrustStoreError)
+    expect(() => new TrustStore(directory).lookupAllSync(WORKSPACE, servers)).toThrow(TrustStoreError)
   })
 
   it('stamps decidedAt as now.toISOString()', async () => {

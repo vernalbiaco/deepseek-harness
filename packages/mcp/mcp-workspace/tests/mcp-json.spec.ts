@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { WorkspaceServerEntry } from '../src/types.ts'
-import { McpJsonError, fingerprintEntry, parseMcpJson, readMcpJson, substitutePlaceholders } from '../src/mcp-json.ts'
+import { McpJsonError, fingerprintEntry, parseMcpJson, readMcpJson, readMcpJsonSync, substitutePlaceholders } from '../src/mcp-json.ts'
 
 describe('parseMcpJson', () => {
   it('parses a valid stdio entry', () => {
@@ -176,6 +176,18 @@ describe('readMcpJson', () => {
     const notADirectory = join(dir, 'not-a-directory')
     await writeFile(notADirectory, 'x')
     await expect(readMcpJson(notADirectory)).rejects.toThrow(/ENOTDIR/)
+  })
+
+  it('reads synchronously with the same outcomes', async () => {
+    dir = await mkdtemp(join(tmpdir(), 'dsh-mcp-workspace-'))
+    expect(readMcpJsonSync(dir)).toBeUndefined()
+    await writeFile(join(dir, '.mcp.json'), JSON.stringify({ mcpServers: { fixture: { command: 'node' } } }))
+    expect(readMcpJsonSync(dir)).toEqual(await readMcpJson(dir))
+    const notADirectory = join(dir, 'not-a-directory')
+    await writeFile(notADirectory, 'x')
+    expect(() => readMcpJsonSync(notADirectory)).toThrow(/ENOTDIR/)
+    await writeFile(join(dir, '.mcp.json'), '{')
+    expect(() => readMcpJsonSync(dir)).toThrow(McpJsonError)
   })
 })
 

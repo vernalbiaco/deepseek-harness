@@ -161,15 +161,21 @@ export class TrustStore {
   }
 
   /**
-   * Synchronous, lock-free {@link lookup} for callers that must decide before returning, such as an `agent/created` listener.
+   * Synchronous, lock-free {@link lookup} of several servers from one read of
+   * the trust document, for callers that must decide before returning, such as
+   * an `agent/created` listener.
    * @param workspacePath - canonical workspace path used as the top-level document key.
-   * @param serverName - the server's name within the workspace.
-   * @param fingerprint - the server entry's current fingerprint; a stored decision for a different fingerprint does not match.
-   * @returns the stored decision, or `undefined` when no record exists or the stored fingerprint differs.
+   * @param servers - each server's name within the workspace and current entry fingerprint;
+   *   a stored decision for a different fingerprint does not match.
+   * @returns the stored decisions in `servers` order, `undefined` where no record exists or the stored fingerprint differs.
    * @throws {TrustStoreError} per {@link readDocumentSync}.
    */
-  lookupSync(workspacePath: string, serverName: string, fingerprint: string): TrustDecision | undefined {
-    return decisionIn(readDocumentSync(this.filename), workspacePath, serverName, fingerprint)
+  lookupAllSync(
+    workspacePath: string,
+    servers: ReadonlyArray<{ readonly name: string; readonly fingerprint: string }>,
+  ): Array<TrustDecision | undefined> {
+    const document = readDocumentSync(this.filename)
+    return servers.map(server => decisionIn(document, workspacePath, server.name, server.fingerprint))
   }
 
   /**

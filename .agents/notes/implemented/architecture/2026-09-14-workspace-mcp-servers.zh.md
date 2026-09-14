@@ -39,7 +39,7 @@ interface ConnectionOptions {
 | 模块 | 职责 |
 |---|---|
 | `mcp-json.ts` | 把 `.mcp.json` 的 `mcpServers` 解析为 stdio（`command`、`args`、`env`）或 HTTP（`type: "http"`、`url`、`headers`）条目；拒绝无效服务器名、`sse`、`${NAME:-default}` 和字面密钥；在替换之前对每个条目按键排序后的 JSON 计算 `sha256:` 指纹 |
-| `trust-store.ts` | 读写 `mcp-trust.yaml`：规范化工作区路径 → 服务器名 → `{ decision: allow \| deny, fingerprint, decidedAt }`，在 `withFileLock` 下以 `writeFileAtomic` 按模式 `0600` 写入；`lookupSync` 供同步挂接使用 |
+| `trust-store.ts` | 读写 `mcp-trust.yaml`：规范化工作区路径 → 服务器名 → `{ decision: allow \| deny, fingerprint, decidedAt }`，在 `withFileLock` 下以 `writeFileAtomic` 按模式 `0600` 写入；`lookupAllSync` 以一次读取供同步挂接使用 |
 | `pool.ts` | 每个 `(工作区路径, 服务器名, 指纹)` 一个受监管连接，保存其当前定义集合以及通过其租约挂接的 agent 上下文；最后一个租约释放后关闭连接 |
 | `binder.ts` | `agent/created` 处理器：同步挂接符合条件的 agent，之后执行 `.mcp.json` 读取、信任查询、凭据检查与提问，并在 agent 释放时释放租约 |
 | `index.ts` | 插件装配、`Config` 与激活时的预连接 |
@@ -71,7 +71,7 @@ interface ConnectionOptions {
 
 当 `ctx.agents.roots().includes(agent)` 且 agent 规范化后的 cwd 等于连接的工作区路径时，该 agent 获得工作区服务器的工具。该集合包含顶层会话和可继续的 subagent 子会话，不包含通过父 agent 上下文创建的一次性进程内子 agent。“仅本会话允许”只作用于提问的 agent。
 
-在 `agent/created` 内的挂接是同步的：对于 binder 为该 agent 路径提供的每个已发布工具、且经 `lookupSync` 读取的已保存决定仍为 `allow` 的连接，binder 获取一个租约并把它挂接到 agent 上下文；挂接位于 `agent.ctx.effect` 中，其清理会释放该 agent 拥有的所有租约。同步挂接不读取 `.mcp.json`；该 agent 的异步流程随后读取该文件，并撤下文件已不再声明的条目的挂接。连接、提问和凭据解析在监听器返回后运行，其结果在后续步骤注册。当连接在 `tools/list_changed` 或重连后替换其定义集合时，连接池的 sink 会在每个已挂接 agent 上替换注册；某个 agent 上的注册失败会让该 agent 不保留该服务器的任何工具，并记录日志。挂接前，binder 用不带作用域的 `ctx.tools.get(name)` 检查是否存在同名全局工具，例如同一服务器名的 profile 级 `mcp-client` 行，并对每个路径与服务器记录一次警告；按注册表规定，agent 作用域工具会遮蔽全局工具。
+在 `agent/created` 内的挂接是同步的：对于 binder 为该 agent 路径提供的、已发布工具、经 `readMcpJsonSync` 读取的该路径 `.mcp.json` 仍声明、且已保存决定（对所有此类连接通过一次 `lookupAllSync` 读取）仍为 `allow` 的每个连接，binder 获取一个租约并把它挂接到 agent 上下文；挂接位于 `agent.ctx.effect` 中，其清理会释放该 agent 拥有的所有租约。没有提供连接的路径两个文件都不读取。文件已不再声明的已提供连接会被撤销；文件缺失或无法读取、解析时，所有已提供连接都会被撤销。该 agent 的异步流程随后再次读取 `.mcp.json`，记录无法读取或解析的文件并将其视为未声明任何条目，并对文件已不再声明的条目撤下挂接、撤销已提供的连接。连接、提问和凭据解析在监听器返回后运行，其结果在后续步骤注册。当连接在 `tools/list_changed` 或重连后替换其定义集合时，连接池的 sink 会在每个已挂接 agent 上替换注册；某个 agent 上的注册失败会让该 agent 不保留该服务器的任何工具，并记录日志。挂接前，binder 用不带作用域的 `ctx.tools.get(name)` 检查是否存在同名全局工具，例如同一服务器名的 profile 级 `mcp-client` 行，并对每个路径与服务器记录一次警告；按注册表规定，agent 作用域工具会遮蔽全局工具。
 
 不新增会话事件。工具定义只通过请求到达模型，而 agent loop（智能体循环）已经依据[可重建请求](2026-07-05-reconstructable-requests.md)，在 `request/header` 中以 `initial`、`resume` 或 `change` 原因记录可见工具集合。被跳过和被拒绝的服务器只报告到主机日志，从不进入提示词。
 
@@ -89,7 +89,7 @@ agent loop 在 `publish` 内同步宣告 `agent/created`，而首次 `systemProm
 
 ### 失败处理
 
-传输断开时保留最后一次定义集合的注册，此期间调用失败，并按配置的策略重连。重连预算耗尽时，sink 清除所有已挂接 agent 的注册，下一次获取该键时启动一次全新连接并保留现有挂接。`.mcp.json` 在会话挂接时和预连接时读取；插件不监视它，因此编辑会对该工作区的下一个会话生效，指纹变化会再次提问。agent 的流程会撤下其自身对文件已不再声明的条目的挂接，并停止向后续 agent 提供这些连接，但不会释放这些连接上插件持有的预连接租约：这些连接会保持打开，直到插件被释放。插件释放时，释放所有租约，并通过监管器的有界关闭并行关闭所有连接。
+传输断开时保留最后一次定义集合的注册，此期间调用失败，并按配置的策略重连。重连预算耗尽时，sink 清除所有已挂接 agent 的注册，下一次获取该键时启动一次全新连接并保留现有挂接。`.mcp.json` 在会话挂接时和预连接时读取；插件不监视它，因此编辑会对该工作区的下一个会话生效，指纹变化会再次提问。agent 的流程会撤下其自身对文件已不再声明的条目的挂接，停止向后续 agent 提供这些连接，并释放这些连接上插件持有的预连接租约，因此不再有 agent 持有时每个连接都会关闭。插件释放时，释放所有租约，并通过监管器的有界关闭并行关闭所有连接。
 
 ## 曾考虑的替代方案
 
@@ -123,14 +123,15 @@ agent loop 在 `publish` 内同步宣告 `agent/created`，而首次 `systemProm
 - 决定按规范化路径保存，因此同一检出目录挂载在不同路径时需要分别决定，例如 Web 使用 `/workspaces/<name>`，容器运行使用 `/workspace`。
 - 重新检查只在服务器挂接时运行，因此决定被删除或改为 `deny` 之后，运行中的 agent 会保留该服务器的工具，直到该 agent 被释放。
 - 即使已保存该服务器的 `deny`，“仅本会话允许”仍会为提问的 agent 接纳该服务器。
-- `.mcp.json` 中被移除或修改的条目，其预连接连接会保持打开，直到插件被释放。
+- 运行中的 agent 会保留 `.mcp.json` 中被移除或修改的条目的工具，其连接保持打开，直到这些 agent 被释放。
+- 在 `.mcp.json` 缺失或无法解析时（例如编辑进行到一半）创建的 agent，会撤销该工作区的所有已提供连接，因此除非另有 agent 持有，这些连接都会关闭；之后某个 agent 的接纳会重新连接它们，但不再带有预连接引用。
 - agent 作用域工具会遮蔽同名全局工具，因此保留同一服务器 profile 级行的部署会打开两个连接，并只能依赖所记录的警告。
 - 在 ACP 快照场景中，信任文件位于生成的工作区内，因为快照 harness 把 `DSH_HOME` 设置在那里；真实部署把它保存在所有工作区之外的 `$DSH_HOME` 中。
 - `workspace-mcp-unapproved` 的 stderr 断言没有异步接纳流程的完成信号：harness 在 `prompt` 完成后关闭 stdin，该断言依赖跳过警告在此之前已经写出。
 
 ## 测试
 
-- **单元测试：** `packages/mcp/mcp-client/tests/connection-options.spec.ts` 覆盖 `fetchToolDefinitions`、`createRegistrySink` 回滚、自定义 sink、每次尝试的 `resolveConfig`、`resolveConfig` 期间的释放以及 `stopped()`；现有 `mcp-client.spec.ts` 覆盖插件路径。在 `packages/mcp/mcp-workspace/tests` 中，`mcp-json.spec.ts` 覆盖解析、拒绝、占位符与指纹；`trust-store.spec.ts` 覆盖往返读写、模式 `0600`、无效文档、并发记录与 `lookupSync`；`pool.spec.ts` 覆盖共享、挂接与解除挂接、凭据、重连预算耗尽与释放；`binder.spec.ts` 覆盖首步可见性、资格、决定与共享问题、失败、已保存决定的重新检查与释放；`invariant.spec.ts` 覆盖不变量伴随插件。
+- **单元测试：** `packages/mcp/mcp-client/tests/connection-options.spec.ts` 覆盖 `fetchToolDefinitions`、`createRegistrySink` 回滚、自定义 sink、每次尝试的 `resolveConfig`、`resolveConfig` 期间的释放以及 `stopped()`；现有 `mcp-client.spec.ts` 覆盖插件路径。在 `packages/mcp/mcp-workspace/tests` 中，`mcp-json.spec.ts` 覆盖解析、拒绝、占位符、指纹与两种读取；`trust-store.spec.ts` 覆盖往返读写、模式 `0600`、无效文档、并发记录与 `lookupAllSync`；`pool.spec.ts` 覆盖共享、挂接与解除挂接、凭据、重连预算耗尽与释放；`binder.spec.ts` 覆盖首步可见性、资格、决定与共享问题、失败、已保存决定的重新检查与释放；`invariant.spec.ts` 覆盖不变量伴随插件。
 - **首步可见性：** `binder.spec.ts` 中的 "lists a preconnected server tool in the initial request header of an agent created afterwards" 断言原因为 `initial` 的 `request/header` 列出夹具工具。
 - **就绪前释放：** `pool.spec.ts` 中的 "dispose settles during a connection first attempt" 与 "dispose settles after the child started and before the first attempt settles"，以及 `plugin.spec.ts` 中的 "settles fiber disposal requested while activation awaits a connecting server" 与 "…a silent server within preconnectTimeoutMs"。
 - **组合：** `composition.spec.ts` 通过 Loader 启动 `tests/fixtures/composition.cordis.yml`，断言已保存 `allow` 的服务器工具出现在首个请求中，且其调用结果被记录。

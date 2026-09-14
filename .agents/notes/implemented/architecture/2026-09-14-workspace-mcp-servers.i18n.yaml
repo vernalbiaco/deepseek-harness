@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-14-workspace-mcp-servers.md
-2026-09-14-workspace-mcp-servers.md: 9fa9856d83f870f16c3f28784da8fb937f1dae0f
-2026-09-14-workspace-mcp-servers.zh.md: fcf48aae159d9d72401825c045186d75dd401ade
+2026-09-14-workspace-mcp-servers.md: 455650da87058117c27104152b2869df09477879
+2026-09-14-workspace-mcp-servers.zh.md: 2819354c8eec39badda4f84689bf66598215439a

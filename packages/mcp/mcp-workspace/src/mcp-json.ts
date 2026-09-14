@@ -7,6 +7,7 @@
  */
 
 import { createHash } from 'node:crypto'
+import { readFileSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { SERVER_NAME_PATTERN } from '@deepseek-ai/dsh-mcp-client'
@@ -95,11 +96,38 @@ export async function readMcpJson(workspacePath: string): Promise<McpJsonReadRes
   try {
     text = await readFile(filePath, 'utf8')
   } catch (error) {
-    // Empty catch would swallow every file-system failure; only a missing file is a defined outcome here.
-    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') return undefined
-    throw error
+    return missingFile(error)
   }
   return parseMcpJson(text, filePath)
+}
+
+/**
+ * Synchronous {@link readMcpJson}, for callers that must decide before returning, such as an `agent/created` listener.
+ * @param workspacePath - canonical workspace directory to read `.mcp.json` from.
+ * @returns the parse result, or `undefined` when the file does not exist.
+ * @throws {McpJsonError} per {@link parseMcpJson}.
+ * @throws the underlying error for any file-system failure other than the file not existing.
+ */
+export function readMcpJsonSync(workspacePath: string): McpJsonReadResult | undefined {
+  const filePath = join(workspacePath, MCP_JSON_FILE)
+  let text: string
+  try {
+    text = readFileSync(filePath, 'utf8')
+  } catch (error) {
+    return missingFile(error)
+  }
+  return parseMcpJson(text, filePath)
+}
+
+/**
+ * Resolves a failed `.mcp.json` read; only a missing file is a defined outcome.
+ * @param error - the read failure.
+ * @returns `undefined` when the file does not exist.
+ * @throws `error` for any other file-system failure.
+ */
+function missingFile(error: unknown): undefined {
+  if (error instanceof Error && 'code' in error && error.code === 'ENOENT') return undefined
+  throw error
 }
 
 /**
