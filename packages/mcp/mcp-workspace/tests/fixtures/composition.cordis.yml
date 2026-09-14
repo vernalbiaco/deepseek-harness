@@ -1,7 +1,8 @@
 # Keyless composition for the mcp-workspace Loader composition and end-to-end
 # tests: the agent spine, JSONL persistence, local credentials, user questions,
-# a scripted model, and the plugin row as the base bundle mounts it. Source
-# builtins keep the tests independent of prebuilt workspace artifacts.
+# a scripted model, and the mcp-workspace plugin. Every row loads a `cordis:`
+# source builtin, which keeps the tests independent of prebuilt workspace
+# artifacts.
 - id: llm
   name: cordis:mcp-workspace-test-llm
 
