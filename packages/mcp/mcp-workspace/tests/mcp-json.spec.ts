@@ -14,6 +14,12 @@ describe('parseMcpJson', () => {
     ])
   })
 
+  it('parses an explicit stdio type like an absent one', () => {
+    const result = parseMcpJson(JSON.stringify({ mcpServers: { fixture: { type: 'stdio', command: 'node' } } }), 'source')
+    expect(result.refused).toEqual([])
+    expect(result.servers.map(server => server.entry)).toEqual([{ transport: 'stdio', command: 'node', args: [], env: {} }])
+  })
+
   it('parses a stdio entry with valid args and a non-sensitive literal env value', () => {
     const result = parseMcpJson(JSON.stringify({ mcpServers: { fixture: { command: 'node', args: ['--flag'], env: { MODE: 'debug' } } } }), 'source')
     expect(result.refused).toEqual([])

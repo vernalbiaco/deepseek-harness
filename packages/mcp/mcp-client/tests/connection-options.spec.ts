@@ -220,16 +220,31 @@ describe('createRegistrySink', () => {
       ctx,
       defaultOpts,
     )
+    // Every disposer a sink receives from a successful registration, in registration order.
+    const disposers: Array<ReturnType<typeof vi.fn>> = []
+    const register = ctx.tools.register.bind(ctx.tools)
+    vi.spyOn(ctx.tools, 'register').mockImplementation((definition) => {
+      const dispose = vi.fn(register(definition))
+      disposers.push(dispose)
+      return dispose
+    })
 
     const containSink = createRegistrySink(ctx, 'srv')
     containSink.replace(definitions, 'contain')
     expect(ctx.tools.get('mcp__srv__free')).toBeUndefined()
     expect(ctx.tools.get('mcp__srv__taken')).toBeDefined() // the squatter, untouched
     expect(errors.some(line => line.includes('tool registration failed, no tools registered'))).toBe(true)
+    // All-or-nothing: the one registration that succeeded was disposed, and the sink retains none.
+    expect(disposers).toHaveLength(1)
+    expect(disposers[0]).toHaveBeenCalledTimes(1)
+    containSink.clear()
+    expect(disposers[0]).toHaveBeenCalledTimes(1)
 
     const throwSink = createRegistrySink(ctx, 'srv')
     expect(() => { throwSink.replace(definitions, 'throw') }).toThrow()
     expect(ctx.tools.get('mcp__srv__free')).toBeUndefined()
+    expect(disposers).toHaveLength(2)
+    expect(disposers[1]).toHaveBeenCalledTimes(1)
   })
 })
 
