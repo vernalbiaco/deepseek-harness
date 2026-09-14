@@ -96,7 +96,8 @@ export async function readMcpJson(workspacePath: string): Promise<McpJsonReadRes
   try {
     text = await readFile(filePath, 'utf8')
   } catch (error) {
-    return missingFile(error)
+    rethrowUnlessMissing(error)
+    return undefined
   }
   return parseMcpJson(text, filePath)
 }
@@ -114,20 +115,19 @@ export function readMcpJsonSync(workspacePath: string): McpJsonReadResult | unde
   try {
     text = readFileSync(filePath, 'utf8')
   } catch (error) {
-    return missingFile(error)
+    rethrowUnlessMissing(error)
+    return undefined
   }
   return parseMcpJson(text, filePath)
 }
 
 /**
- * Resolves a failed `.mcp.json` read; only a missing file is a defined outcome.
+ * Accepts a failed `.mcp.json` read only when the file does not exist.
  * @param error - the read failure.
- * @returns `undefined` when the file does not exist.
- * @throws `error` for any other file-system failure.
+ * @throws `error` for any file-system failure other than the file not existing.
  */
-function missingFile(error: unknown): undefined {
-  if (error instanceof Error && 'code' in error && error.code === 'ENOENT') return undefined
-  throw error
+function rethrowUnlessMissing(error: unknown): void {
+  if (!(error instanceof Error && 'code' in error && error.code === 'ENOENT')) throw error
 }
 
 /**
