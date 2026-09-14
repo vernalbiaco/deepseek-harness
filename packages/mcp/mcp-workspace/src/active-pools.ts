@@ -1,8 +1,11 @@
 /**
  * The live connection pool of each mounted plugin, keyed by root context, for
- * the invariant companion. `lib/index.js` and `lib/invariant.js` are separate
- * bundles that each inline this module, so the map is stored under a
- * registered global symbol and both bundles read one instance.
+ * the invariant companion. The package's `tsdown.config.ts` builds
+ * `lib/index.js` and `lib/invariant.js` as independent bundles, so each
+ * inlines its own copy of this module's code. `Symbol.for` interns by string
+ * key, so both copies' `ACTIVE_POOLS` constants are the identical symbol;
+ * reading and writing `globalThis[ACTIVE_POOLS]` therefore reaches one shared
+ * map regardless of which bundle set it first.
  * @module @deepseek-ai/dsh-mcp-workspace/active-pools
  */
 
