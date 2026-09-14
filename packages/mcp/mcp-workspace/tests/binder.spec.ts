@@ -485,6 +485,20 @@ describe('WorkspaceBinder decisions', () => {
     expect(await pids(pidDir)).toHaveLength(1)
   })
 
+  it('asks a session whose undecided server was renamed instead of waiting on the question for the old name', async () => {
+    const { ctx, workspace, pidDir, questions } = await harness()
+    const entry = fixtureEntry(pidDir)
+    await writeMcpJson(workspace, { fixture: entry })
+
+    const first = await create(ctx, 'binder-rename-first', { cwd: workspace })
+    await until(() => questions.requests.length === 1)
+    await writeMcpJson(workspace, { renamed: entry })
+    const second = await create(ctx, 'binder-rename-second', { cwd: workspace })
+    await until(() => questions.requests.length === 2)
+
+    expect(questions.requests.map(request => request.agent)).toEqual([first.agent, second.agent])
+  })
+
   it('lets a waiting session ask again after the asker chose Allow this session', async () => {
     const { ctx, trust, trustFile, workspace, pidDir, questions } = await harness()
     const entry = fixtureEntry(pidDir)

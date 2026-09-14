@@ -50,7 +50,7 @@ export interface WorkspaceBinderDeps {
  */
 type QuestionOutcome = 'workspace' | 'session' | 'aborted' | 'closed'
 
-/** One pending question, shared by every agent waiting on the same workspace path and fingerprint set. */
+/** One pending question, shared by every agent waiting on the same workspace path and set of undecided server names and fingerprints. */
 interface PendingQuestion {
   readonly asker: Binding
   readonly outcome: Promise<QuestionOutcome>
@@ -325,7 +325,7 @@ export class WorkspaceBinder {
 
   /**
    * Resolve a decision for undecided servers through one shared question per
-   * path and fingerprint set, then admit according to the outcome.
+   * path and set of server names and fingerprints, then admit according to the outcome.
    * @param binding - the waiting agent's binding.
    * @param servers - the undecided servers, all declared in `binding.path`.
    */
@@ -334,7 +334,7 @@ export class WorkspaceBinder {
       for (const server of servers) this.ctx.logger.warn(`mcp-workspace(${server.name}): not approved`)
       return
     }
-    const key = JSON.stringify([binding.path, servers.map(server => server.fingerprint).sort()])
+    const key = JSON.stringify([binding.path, servers.map(server => JSON.stringify([server.name, server.fingerprint])).sort()])
     for (;;) {
       let question = this.questions.get(key)
       if (question === undefined) {
