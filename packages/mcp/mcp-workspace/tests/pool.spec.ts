@@ -402,7 +402,11 @@ describe('WorkspacePool', () => {
     await pool.dispose()
     expect(Date.now() - started).toBeLessThan(5_000)
     expect(await lease.ready).toHaveProperty('error')
+    // Disposal can kill the child before startup writes its pid file, so wait
+    // past fixture startup for a late file before asserting no child survived.
     await until(async () => (await pids(dir)).every(pid => !isAlive(pid)))
+    await sleep(1_000)
+    expect((await pids(dir)).filter(pid => isAlive(pid))).toEqual([])
   }, 15_000)
 
   it('dispose settles after the child started and before the first attempt settles', async () => {
@@ -411,10 +415,11 @@ describe('WorkspacePool', () => {
     const lease = pool.acquire(dir, { ...silent, entry: { ...silent.entry, args: [silentPath] } as DeclaredServer['entry'] })
     await until(async () => (await pids(dir)).length === 1)
     const [pid] = await pids(dir)
-    void lease.release()
+    const released = lease.release()
     const started = Date.now()
     await pool.dispose()
     expect(Date.now() - started).toBeLessThan(5_000)
+    await released
     await until(() => !isAlive(pid!))
   }, 15_000)
 })
