@@ -485,8 +485,9 @@ describe('WorkspaceBinder decisions', () => {
   })
 
   it('lets a waiting session ask again after the asker chose Allow this session', async () => {
-    const { ctx, trust, workspace, pidDir, questions } = await harness()
-    await writeMcpJson(workspace, { fixture: fixtureEntry(pidDir) })
+    const { ctx, trust, trustFile, workspace, pidDir, questions } = await harness()
+    const entry = fixtureEntry(pidDir)
+    await writeMcpJson(workspace, { fixture: entry })
 
     const [first, second] = await Promise.all([
       create(ctx, 'binder-retry-first', { cwd: workspace }),
@@ -497,10 +498,11 @@ describe('WorkspaceBinder decisions', () => {
     const asker = questions.requests[0]!.agent === first.agent ? first : second
     const waiter = asker === first ? second : first
     questions.answer(ALLOW_SESSION)
+    await until(() => ctx.tools.get(ECHO, asker.agent) !== undefined)
     await until(() => questions.requests.length === 2)
     expect(questions.requests[1]?.agent).toBe(waiter.agent)
     questions.answer(DENY)
-    await until(() => ctx.tools.get(ECHO, asker.agent) !== undefined)
+    await until(async () => await new TrustStore(trustFile).lookup(workspace, 'fixture', fingerprintEntry(entry)) === 'deny')
 
     expect(ctx.tools.get(ECHO, waiter.agent)).toBeUndefined()
   })
@@ -872,6 +874,28 @@ describe('WorkspaceBinder stored-decision recheck', () => {
 
     expect(ctx.tools.get(ECHO, agent)).toBeDefined()
     expect(await new TrustStore(trustFile).lookup(workspace, 'fixture', fingerprintEntry(entry))).toBeUndefined()
+  })
+
+  it('does not attach an Allow this session server when deny is written before its recheck', async () => {
+    const { ctx, trust, trustFile, workspace, pidDir, questions } = await harness()
+    const entry = fixtureEntry(pidDir)
+    await writeMcpJson(workspace, { fixture: entry })
+
+    const { agent } = await create(ctx, 'recheck-session-deny', { cwd: workspace })
+    await until(() => questions.requests.length === 1)
+    const gate: PromiseWithResolvers<void> = Promise.withResolvers()
+    trust.gate = gate.promise
+    const started = trust.started
+    questions.answer(ALLOW_SESSION)
+    await until(() => trust.started === started + 1)
+    await deny(trustFile, workspace, entry)
+    gate.resolve()
+    await until(async () => {
+      const running = await pids(pidDir)
+      return running.length === 1 && running.every(pid => !isAlive(pid))
+    })
+
+    expect(ctx.tools.get(ECHO, agent)).toBeUndefined()
   })
 
   it.each([

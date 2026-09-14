@@ -71,7 +71,7 @@ interface Binding {
   readonly controller: AbortController
   /** Owned leases keyed by {@link leaseKey}; an agent holds at most one lease per key. */
   readonly leases: Map<string, OwnedLease>
-  /** {@link leaseKey}s admitted by Allow this session; they stay admitted without a stored `allow`. */
+  /** {@link leaseKey}s admitted by Allow this session; they stay admitted while no decision is stored for their fingerprint. */
   readonly sessionAllowed: Set<string>
 }
 
@@ -492,13 +492,15 @@ export class WorkspaceBinder {
   }
 
   /**
+   * Decide whether a connection may stay attached to, or be attached to, an agent.
+   * A stored decision wins over the agent's Allow this session, because it is the user's newest decision.
    * @param binding - the agent binding.
    * @param key - the connection's {@link leaseKey}.
    * @param decision - the stored decision for the connection's server and fingerprint.
-   * @returns whether the stored `allow` or the agent's Allow this session admits the connection.
+   * @returns whether a stored `allow`, or with no stored decision the agent's Allow this session, admits the connection.
    */
   private admits(binding: Binding, key: string, decision: TrustDecision | undefined): boolean {
-    return decision === 'allow' || binding.sessionAllowed.has(key)
+    return decision === 'allow' || (decision === undefined && binding.sessionAllowed.has(key))
   }
 
   /**
