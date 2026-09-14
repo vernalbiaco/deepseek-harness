@@ -76,6 +76,11 @@ async function harness(): Promise<Harness> {
   return { ctx, workspace, trustFile: join(root, 'home', 'mcp-trust.yaml'), pidDir }
 }
 
+/** A complete plugin config with the schema defaults; the export-form test asserts they match {@link plugin.Config}. */
+function config(overrides: Partial<plugin.Config> & Pick<plugin.Config, 'trustFile'>): plugin.Config {
+  return { preconnect: true, preconnectTimeoutMs: 10_000, toolCallTimeoutMs: 60_000, ...overrides }
+}
+
 /** Declare one server in `workspace/.mcp.json` and record `allow` for it. */
 async function allowServer(trustFile: string, workspace: string, entry: Record<string, unknown>): Promise<void> {
   await writeFile(join(workspace, '.mcp.json'), JSON.stringify({ mcpServers: { fixture: entry } }))
@@ -128,13 +133,15 @@ describe('mcp-workspace plugin', () => {
   })
 
   it('requires trustFile and defaults every other field', () => {
-    expect(() => plugin.Config({})).toThrow()
-    expect(plugin.Config({ trustFile: '/home/user/.dsh/mcp-trust.yaml' })).toMatchObject({
+    expect(() => plugin.Config({} as never)).toThrow()
+    const resolved = plugin.Config({ trustFile: '/home/user/.dsh/mcp-trust.yaml' } as never)
+    expect(resolved).toMatchObject({
       trustFile: '/home/user/.dsh/mcp-trust.yaml',
       preconnect: true,
       preconnectTimeoutMs: 10_000,
       toolCallTimeoutMs: 60_000,
     })
+    expect(resolved).toMatchObject(config({ trustFile: '/home/user/.dsh/mcp-trust.yaml' }))
   })
 
   it('preconnects the process cwd, attaches from the first step, and unwinds on disposal', async () => {
@@ -146,7 +153,7 @@ describe('mcp-workspace plugin', () => {
     })
     vi.spyOn(process, 'cwd').mockReturnValue(workspace)
 
-    const fiber = await ctx.plugin(plugin, plugin.Config({ trustFile }))
+    const fiber = await ctx.plugin(plugin, config({ trustFile }))
     const [pid] = await pids(pidDir)
     expect(activePools().get(ctx.root)).toBeDefined()
     const agent = await createAgent(ctx, 'plugin-hmr', workspace)
@@ -178,7 +185,7 @@ describe('mcp-workspace plugin', () => {
     vi.spyOn(process, 'cwd').mockReturnValue(workspace)
 
     const started = performance.now()
-    const fiber = await ctx.plugin(plugin, plugin.Config({ trustFile, preconnectTimeoutMs: 300 }))
+    const fiber = await ctx.plugin(plugin, config({ trustFile, preconnectTimeoutMs: 300 }))
     const elapsed = performance.now() - started
 
     expect(elapsed).toBeGreaterThanOrEqual(290)
@@ -195,7 +202,7 @@ describe('mcp-workspace plugin', () => {
     vi.spyOn(process, 'cwd').mockReturnValue(workspace)
     await ctx.plugin(WorkspaceRegistryStub, { paths: [workspace] })
 
-    await ctx.plugin(plugin, plugin.Config({ trustFile, preconnect: false }))
+    await ctx.plugin(plugin, config({ trustFile, preconnect: false }))
     await sleep(200)
 
     expect(await pids(pidDir)).toEqual([])
@@ -207,7 +214,7 @@ describe('mcp-workspace plugin', () => {
     const empty = join(workspace, '..', 'pids')
     vi.spyOn(process, 'cwd').mockReturnValue(empty)
 
-    await ctx.plugin(plugin, plugin.Config({ trustFile }))
+    await ctx.plugin(plugin, config({ trustFile }))
     expect(await pids(pidDir)).toEqual([])
     await ctx.plugin(WorkspaceRegistryStub, { paths: [workspace] })
 
