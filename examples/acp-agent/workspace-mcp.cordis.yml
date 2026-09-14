@@ -1,0 +1,17 @@
+# Workspace-MCP snapshot composition: the base bundle's credential and
+# workspace MCP rows over the base example. The agent process starts in the
+# session workspace, so activation preconnects that workspace's saved `allow`
+# servers before the first session exists. ACP has no question provider, so an
+# undecided server is skipped and logged.
+- id: base
+  name: '@deepseek-ai/cordis-plugin-include'
+  config:
+    path: ./cordis.yml
+    patches:
+      - insert:
+          - id: credentials
+            name: '@deepseek-ai/dsh-credentials-local'
+          - id: mcp-workspace
+            name: '@deepseek-ai/dsh-mcp-workspace'
+            config:
+              trustFile: !!js dshHomePath('mcp-trust.yaml')

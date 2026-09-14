@@ -1,0 +1,12 @@
+[
+  {
+    "kind": "chunks",
+    "chunks": [
+      { "type": "block-start", "index": 0, "blockType": "text" },
+      { "type": "text-delta", "index": 0, "text": "No mcp__fixture__echo tool is available in this session." },
+      { "type": "block-end", "index": 0, "block": { "type": "text", "text": "No mcp__fixture__echo tool is available in this session." } },
+      { "type": "usage", "usage": { "inputTokens": 10, "outputTokens": 5 } },
+      { "type": "finish", "reason": { "kind": "stop" } }
+    ]
+  }
+]
