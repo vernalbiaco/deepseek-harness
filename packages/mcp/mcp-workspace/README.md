@@ -68,7 +68,7 @@ The file must be a JSON object with an `mcpServers` object; otherwise the whole 
 
 Every declared server is admitted by the decision stored for its canonical workspace path, server name, and current fingerprint. A matching `allow` connects the server, a matching `deny` skips it without asking, and a missing entry or an entry for another fingerprint needs a decision.
 
-An eligible agent that is not a subagent child asks one question listing every undecided server with its transport, its command and arguments or URL, and each referenced credential as `set` or `missing`. One question is pending per workspace path and undecided fingerprint set; sessions with the same undecided set wait for its answer. If the asking agent answers Allow this session or is disposed, each waiting session asks its own question.
+An eligible agent that is not a subagent child asks one question listing every undecided server with its transport, its command and arguments or URL, and each referenced credential as `set` or `missing`. One question is pending per workspace path and undecided fingerprint set; sessions with the same undecided set wait for its answer. If the asking agent answers Allow this session or is disposed, or the question UI aborts the question, each waiting session asks its own question.
 
 | Option | Effect |
 |---|---|

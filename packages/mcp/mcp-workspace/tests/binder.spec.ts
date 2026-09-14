@@ -24,7 +24,7 @@ import { WorkspacePool } from '../src/pool.ts'
 import { TrustStore } from '../src/trust-store.ts'
 import type * as McpJson from '../src/mcp-json.ts'
 
-const reads = vi.hoisted(() => ({ settled: 0, gate: Promise.resolve() as Promise<void> }))
+const reads = vi.hoisted(() => ({ settled: 0, gate: Promise.resolve() }))
 
 vi.mock('../src/mcp-json.ts', async (importOriginal) => {
   const actual = await importOriginal<typeof McpJson>()
@@ -93,7 +93,8 @@ interface Questions {
   onAsk?: (request: AskUserQuestionRequest) => void
   /** Settle the oldest unsettled question with one selected label, or with no answer for `QUESTION_ID`. */
   answer(label?: string): void
-  fail(error: Error): void
+  /** Reject the oldest unsettled question with `error`, which may be any value. */
+  fail(error: unknown): void
 }
 
 interface HarnessOptions {
@@ -592,6 +593,39 @@ describe('WorkspaceBinder decisions', () => {
 
     expect(errors).toEqual(['mcp-workspace: question failed: Error: provider broke'])
     expect(ctx.tools.get(ECHO, agent)).toBeUndefined()
+  })
+
+  it('lets the next session ask after the question provider rejects without a reason', async () => {
+    const { ctx, workspace, pidDir, questions, errors } = await harness()
+    await writeMcpJson(workspace, { fixture: fixtureEntry(pidDir) })
+
+    await create(ctx, 'binder-reject-first', { cwd: workspace })
+    await until(() => questions.requests.length === 1)
+    questions.fail(undefined)
+    await until(() => errors.length === 1)
+    const second = await create(ctx, 'binder-reject-second', { cwd: workspace })
+    await until(() => questions.requests.length === 2)
+
+    expect(questions.requests[1]?.agent).toBe(second.agent)
+    expect(errors).toEqual(['mcp-workspace: question failed: undefined'])
+  })
+
+  it('lets the waiter ask again without logging when the provider aborts a question the asker did not abort', async () => {
+    const { ctx, trust, workspace, pidDir, questions, errors } = await harness()
+    await writeMcpJson(workspace, { fixture: fixtureEntry(pidDir) })
+
+    const handles = await Promise.all([
+      create(ctx, 'binder-provider-abort-first', { cwd: workspace }),
+      create(ctx, 'binder-provider-abort-second', { cwd: workspace }),
+    ])
+    await until(() => questions.requests.length === 1)
+    await settled(trust, 2)
+    const waiter = handles.find(handle => handle.agent !== questions.requests[0]!.agent)!
+    questions.fail(new UserQuestionError('provider disposed', 'ASK_ABORTED'))
+    await until(() => questions.requests.length === 2)
+
+    expect(questions.requests[1]?.agent).toBe(waiter.agent)
+    expect(errors).toEqual([])
   })
 
   it('admits nothing when Allow for this workspace cannot be recorded', async () => {

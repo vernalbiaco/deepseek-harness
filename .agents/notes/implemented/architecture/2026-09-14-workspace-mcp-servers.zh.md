@@ -59,7 +59,7 @@ interface ConnectionOptions {
 
 每次挂接都会重新检查已保存的决定：`agent/created` 中的同步挂接、该 agent 读取 `.mcp.json` 之后的检查，以及异步挂接之前的即时检查。已保存的 `deny` 会从该 agent 撤下该服务器，并释放插件持有的预连接引用；缺少条目或指纹变化也会如此，除非该 agent 对该服务器持有“仅本会话允许”。`admits()` 只在当前指纹没有已保存决定时才接受会话内允许，因为已保存的 `deny` 是用户最新的决定。信任文件无法读取或无效时，会撤下所有服务器，包括会话内允许的服务器。
 
-决定来自 `ctx.userQuestions.ask`，每个工作区路径与未决定指纹集合一个问题。问题列出所有未决定的服务器，包括其传输方式、命令与参数或 URL，以及通过 `ctx.credentials.describe` 报告为 `set` 或 `missing` 的每个引用凭据；该方法从不返回凭据值。选项为“对此工作区允许”（写入 `allow`）、“仅本会话允许”（只在内存中为提问的 agent 保存，该 agent 被释放或恢复、或进程重启后失效）和“拒绝”（写入 `deny`）。未决定集合相同的会话等待该待定问题；当提问者回答“仅本会话允许”或被释放时，每个等待的会话各自提问。缺少 `userQuestions` 服务或收到 `NO_PROVIDER` 拒绝表示当前界面没有提问 UI；未决定的服务器会被跳过，并记录为 `mcp-workspace(<name>): not approved; no question UI is available`。因此，headless、ACP 和 API 界面只加载已保存的 `allow` 决定。会话头带有 `origin: 'subagent'` 的 agent 会挂接已保存 `allow` 的服务器，但从不提问。
+决定来自 `ctx.userQuestions.ask`，每个工作区路径与未决定指纹集合一个问题。问题列出所有未决定的服务器，包括其传输方式、命令与参数或 URL，以及通过 `ctx.credentials.describe` 报告为 `set` 或 `missing` 的每个引用凭据；该方法从不返回凭据值。选项为“对此工作区允许”（写入 `allow`）、“仅本会话允许”（只在内存中为提问的 agent 保存，该 agent 被释放或恢复、或进程重启后失效）和“拒绝”（写入 `deny`）。未决定集合相同的会话等待该待定问题；当提问者回答“仅本会话允许”或被释放，或提问提供方以 `ASK_ABORTED` 拒绝时，每个等待的会话各自提问，且不记录失败。缺少 `userQuestions` 服务或收到 `NO_PROVIDER` 拒绝表示当前界面没有提问 UI；未决定的服务器会被跳过，并记录为 `mcp-workspace(<name>): not approved; no question UI is available`。因此，headless、ACP 和 API 界面只加载已保存的 `allow` 决定。会话头带有 `origin: 'subagent'` 的 agent 会挂接已保存 `allow` 的服务器，但从不提问。
 
 信任文件位于 `$DSH_HOME` 下，从不放在工作区中，因此项目无法批准自己的服务器。它不是 `settings.yaml` 的一个分节，因为部署可能禁用 settings 行，但仍需要已保存的决定。信任文件读写失败时，本次操作不接纳任何服务器并记录日志；不会默认允许。
 

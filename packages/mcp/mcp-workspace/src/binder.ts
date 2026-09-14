@@ -45,7 +45,8 @@ export interface WorkspaceBinderDeps {
 /**
  * Settlement of one shared question: `workspace` after `allow` was recorded,
  * `session` for the asking agent only, `aborted` when the asking agent was
- * disposed, `closed` when nothing is admitted and waiters must not ask again.
+ * disposed or the question provider aborted the question, `closed` when
+ * nothing is admitted and waiters must not ask again.
  */
 type QuestionOutcome = 'workspace' | 'session' | 'aborted' | 'closed'
 
@@ -338,10 +339,7 @@ export class WorkspaceBinder {
       let question = this.questions.get(key)
       if (question === undefined) {
         // The entry is removed before any waiter observes the outcome, so a waiter that asks again starts a new question.
-        const outcome = this.ask(binding, servers).then((settled) => {
-          this.questions.delete(key)
-          return settled
-        })
+        const outcome = this.ask(binding, servers).finally(() => { this.questions.delete(key) })
         question = { asker: binding, outcome }
         this.questions.set(key, question)
       }
@@ -384,8 +382,10 @@ export class WorkspaceBinder {
         signal,
       }), signal)
     } catch (error) {
-      if (signal.aborted) return 'aborted'
-      if ((error as { code?: unknown }).code === 'NO_PROVIDER') return this.noQuestionUi(servers)
+      // A provider may reject with any value, including a nullish one.
+      const code = (error as { code?: unknown } | null | undefined)?.code
+      if (signal.aborted || code === 'ASK_ABORTED') return 'aborted'
+      if (code === 'NO_PROVIDER') return this.noQuestionUi(servers)
       this.ctx.logger.error(`mcp-workspace: question failed: ${String(error)}`)
       return 'closed'
     }
