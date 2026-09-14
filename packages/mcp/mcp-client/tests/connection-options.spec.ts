@@ -315,6 +315,29 @@ describe('startConnection options', () => {
     expect(instances).toHaveLength(0)
   })
 
+  it('does not resume a connection attempt whose resolveConfig resolves after dispose()', async () => {
+    const ctx = await mountRegistry()
+    const gate: PromiseWithResolvers<Config> = Promise.withResolvers()
+
+    const handle = startConnection(
+      ctx,
+      stdioConfig(),
+      resolveReconnectPolicy(undefined, 'reconnect'),
+      { resolveConfig: () => gate.promise },
+    )
+    const disposing = handle.dispose()
+    gate.resolve(stdioConfig())
+    await disposing
+
+    // No generation was ever created for the disposed attempt: no stray
+    // transport/server process to leak or close.
+    expect(instances).toHaveLength(0)
+    expect(mockConnect).not.toHaveBeenCalled()
+    // A disposed supervisor must never report a successful startup.
+    const outcome = await handle.ready
+    expect(outcome.error).toBeDefined()
+  })
+
   it('stopped() is false while connected, true after budget exhaustion, and true after dispose()', async () => {
     const ctx = await mountRegistry()
 
