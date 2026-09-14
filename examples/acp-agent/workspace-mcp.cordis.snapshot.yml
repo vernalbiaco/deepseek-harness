@@ -2,8 +2,9 @@
 # behind a nested include, so this file restates the replay patches of
 # cordis.snapshot.yml except the subagent-settlement marker, which these
 # scenarios do not need, and adds the credential and workspace MCP rows of
-# workspace-mcp.cordis.yml. The snapshot harness sets `DSH_HOME` inside the
-# generated workspace, where the scenario seeds `mcp-trust.yaml`.
+# workspace-mcp.cordis.yml plus a workspace MCP settlement marker. The snapshot
+# harness sets `DSH_HOME` inside the generated workspace, where the scenario
+# seeds `mcp-trust.yaml`.
 - id: base
   name: '@deepseek-ai/cordis-plugin-include'
   config:
@@ -49,6 +50,11 @@
           # undecided server's skip from a workspace without `.mcp.json`.
           - id: stderr-log-exporter
             name: './tests/fixtures/stderr-log-exporter.ts'
+          # The skip warning is logged by the asynchronous admission pass, after
+          # `prompt` can already resolve; a scenario waits for this marker before
+          # the harness closes stdin.
+          - id: workspace-mcp-settlement-marker
+            name: './tests/fixtures/workspace-mcp-settlement-marker.ts'
           - id: credentials
             name: '@deepseek-ai/dsh-credentials-local'
           - id: mcp-workspace

@@ -74,7 +74,7 @@ interface ConnectionOptions {
 
 在 `agent/created` 内的挂接是同步的：对于 binder 为该 agent 路径提供的、已发布工具、经 `readMcpJsonSync` 读取的该路径 `.mcp.json` 仍声明、且已保存决定（对所有此类连接通过一次 `lookupAllSync` 读取）仍为 `allow` 的每个连接，binder 获取一个租约并把它挂接到 agent 上下文；挂接位于 `agent.ctx.effect` 中，其清理会释放该 agent 拥有的所有租约。没有提供连接的路径两个文件都不读取。文件已不再声明的已提供连接会被撤销；文件缺失或无法读取、解析时，所有已提供连接都会被撤销。该 agent 的异步流程随后再次读取 `.mcp.json`，记录无法读取或解析的文件并将其视为未声明任何条目，并对文件已不再声明的条目撤下挂接、撤销已提供的连接。连接、提问和凭据解析在监听器返回后运行，其结果在后续步骤注册。当连接在 `tools/list_changed` 或重连后替换其定义集合时，连接池的 sink 会在每个已挂接 agent 上替换注册；某个 agent 上的注册失败会让该 agent 不保留该服务器的任何工具，并记录日志。挂接前，binder 用不带作用域的 `ctx.tools.get(name)` 检查是否存在同名全局工具，例如同一服务器名的 profile 级 `mcp-client` 行，并对每个路径与服务器记录一次警告；按注册表规定，agent 作用域工具会遮蔽全局工具。
 
-不新增会话事件。工具定义只通过请求到达模型，而 agent loop（智能体循环）已经依据[可重建请求](2026-07-05-reconstructable-requests.md)，在 `request/header` 中以 `initial`、`resume` 或 `change` 原因记录可见工具集合。被跳过和被拒绝的服务器只报告到主机日志，从不进入提示词。
+不新增会话事件。内存中的 Cordis 事件 `mcp-workspace/binding-settled`（携带 `{ agent }`）宣告某个 agent 的异步接纳流程已结束；它不携带任何模型可见状态。工具定义只通过请求到达模型，而 agent loop（智能体循环）已经依据[可重建请求](2026-07-05-reconstructable-requests.md)，在 `request/header` 中以 `initial`、`resume` 或 `change` 原因记录可见工具集合。被跳过和被拒绝的服务器只报告到主机日志，从不进入提示词。
 
 ### 启动与首步可见性
 
@@ -128,7 +128,6 @@ agent loop 在 `publish` 内同步宣告 `agent/created`，而首次 `systemProm
 - 在 `.mcp.json` 缺失或无法解析时（例如编辑进行到一半）创建的 agent，会撤销该工作区的所有已提供连接，因此除非另有 agent 持有，这些连接都会关闭；之后某个 agent 的接纳会重新连接它们，但不再带有预连接引用。
 - agent 作用域工具会遮蔽同名全局工具，因此保留同一服务器 profile 级行的部署会打开两个连接，并只能依赖所记录的警告。
 - 在 ACP 快照场景中，信任文件位于生成的工作区内，因为快照 harness 把 `DSH_HOME` 设置在那里；真实部署把它保存在所有工作区之外的 `$DSH_HOME` 中。
-- `workspace-mcp-unapproved` 的 stderr 断言没有异步接纳流程的完成信号：harness 在 `prompt` 完成后关闭 stdin，该断言依赖跳过警告在此之前已经写出。
 
 ## 测试
 
@@ -138,5 +137,5 @@ agent loop 在 `publish` 内同步宣告 `agent/created`，而首次 `systemProm
 - **组合：** `composition.spec.ts` 通过 Loader 启动 `tests/fixtures/composition.cordis.yml`，断言已保存 `allow` 的服务器工具出现在首个请求中，且其调用结果被记录。
 - **端到端：** `mcp-workspace.e2e.ts` 证明两个根会话共享一个 stdio 子进程，`${MCP_FIXTURE_TOKEN}` 占位符从 `$DSH_HOME/.env` 解析并进入子进程环境，且两个会话都释放后子进程退出。
 - **ACP 就绪：** `packages/acp/acp/tests/bridge.spec.ts` 中的 "answers initialize only after the Loader tree settles" 与 "rejects initialize when the Loader tree fails to settle"。
-- **ACP 快照：** `examples/acp-agent` 的 `workspace-mcp` 场景为一个指向 `tests/fixtures/mcp-echo-server.mjs` 的生成 `.mcp.json` 写入已保存的 `allow`，并固定首步中带有 `mcp__fixture__echo` 的请求头与工具 schema。`workspace-mcp-unapproved` 场景没有决定；其请求头等于默认类别的固定值，`acp.snapshot.ts` 断言 stderr 行 `mcp-workspace(fixture): not approved; no question UI is available`。仅用于快照的 `tests/fixtures/stderr-log-exporter.ts` 行负责输出该行，因为未设置 `levels` 的 Cordis 导出器会丢弃 `warn`。
+- **ACP 快照：** `examples/acp-agent` 的 `workspace-mcp` 场景为一个指向 `tests/fixtures/mcp-echo-server.mjs` 的生成 `.mcp.json` 写入已保存的 `allow`，并固定首步中带有 `mcp__fixture__echo` 的请求头与工具 schema。`workspace-mcp-unapproved` 场景没有决定；其请求头等于默认类别的固定值，`acp.snapshot.ts` 断言 stderr 行 `mcp-workspace(fixture): not approved; no question UI is available`。该警告来自异步接纳流程，因此场景的 `input.json` 会在 harness 关闭 stdin 之前等待 `.dsh-snapshot-workspace-mcp-settled`；该文件由仅用于快照的 `tests/fixtures/workspace-mcp-settlement-marker.ts` 行在 `mcp-workspace/binding-settled` 时写出。仅用于快照的 `tests/fixtures/stderr-log-exporter.ts` 行负责输出该行，因为未设置 `levels` 的 Cordis 导出器会丢弃 `warn`。
 - **Web 快照：** `apps/web/tests/workspace-mcp-approval.e2e.ts` 断言问题输入区显示带有 `credentials: MCP_FIXTURE_TOKEN missing` 的服务器行，并将其固定在 `snapshots/workspace-mcp-approval/ui.expected.md` 中；随后设置凭据，选择“对此工作区允许”并提交，断言 `mcp-trust.yaml` 以模式 `0600` 记录 `allow`，并断言下一步调用 `mcp__fixture__echo` 且渲染其工具行。

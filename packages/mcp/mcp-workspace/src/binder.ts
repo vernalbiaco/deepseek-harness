@@ -173,7 +173,9 @@ export class WorkspaceBinder {
     const binding: Binding = { agent, path, controller: new AbortController(), leases: new Map(), sessionAllowed: new Set() }
     this.bindings.set(binding, agent.ctx.effect(() => () => { this.unbind(binding) }, 'mcp-workspace.binding()'))
     this.attachShared(binding)
-    void this.bind(binding).catch((error: unknown) => { this.ctx.logger.error(failureMessage(error)) })
+    void this.bind(binding)
+      .catch((error: unknown) => { this.ctx.logger.error(failureMessage(error)) })
+      .then(() => { this.announceSettled(binding) })
   }
 
   /**
@@ -523,6 +525,22 @@ export class WorkspaceBinder {
    */
   private closed(binding: Binding): boolean {
     return binding.controller.signal.aborted
+  }
+
+  /**
+   * Emit `mcp-workspace/binding-settled` for a binding whose asynchronous
+   * admission pass settled, unless the binder is disposed. Cordis `emit` does
+   * not contain listener exceptions and nothing awaits the pass, so a throwing
+   * listener is logged here.
+   * @param binding - the settled binding.
+   */
+  private announceSettled(binding: Binding): void {
+    if (this.disposed) return
+    try {
+      this.ctx.emit('mcp-workspace/binding-settled', { agent: binding.agent })
+    } catch (error) {
+      this.ctx.logger.error(`mcp-workspace: binding-settled listener failed: ${String(error)}`)
+    }
   }
 
   /**

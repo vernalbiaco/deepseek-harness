@@ -9,7 +9,7 @@
 import { setTimeout as delay } from 'node:timers/promises'
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
-import type {} from '@deepseek-ai/dsh-agent'
+import type { Agent } from '@deepseek-ai/dsh-agent'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import { resolveReconnectPolicy } from '@deepseek-ai/dsh-mcp-client'
 import type { ReconnectConfig } from '@deepseek-ai/dsh-mcp-client'
@@ -23,6 +23,22 @@ import { TrustStore } from './trust-store.ts'
 export type * from './types.ts'
 export { MCP_JSON_FILE, McpJsonError, fingerprintEntry, parseMcpJson, readMcpJson, substitutePlaceholders } from './mcp-json.ts'
 export { ALLOW_SESSION, ALLOW_WORKSPACE, DENY, QUESTION_ID } from './binder.ts'
+
+declare module '@deepseek-ai/cordis' {
+  interface Events {
+    /**
+     * An eligible agent's asynchronous admission pass settled: its `.mcp.json`
+     * read, stored-decision lookups, credential checks, questions, and
+     * admissions all finished, including when nothing was admitted, a step
+     * failed, or the agent was disposed first. Emitted in memory only; it
+     * carries no model-visible state and is not persisted. Not emitted after
+     * the plugin is disposed.
+     * @param payload.agent - the agent whose admission pass settled.
+     * @mode emit
+     */
+    'mcp-workspace/binding-settled'(payload: { agent: Agent }): void
+  }
+}
 
 /** Cordis function-plugin name. */
 export const name = 'mcp-workspace'

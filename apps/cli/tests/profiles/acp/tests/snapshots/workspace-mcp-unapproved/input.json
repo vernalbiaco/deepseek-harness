@@ -2,6 +2,7 @@
   "steps": [
     { "op": "initialize" },
     { "op": "newSession" },
-    { "op": "prompt", "text": "Call mcp__fixture__echo with the text hello, then reply with the result." }
+    { "op": "prompt", "text": "Call mcp__fixture__echo with the text hello, then reply with the result." },
+    { "op": "waitForFile", "path": ".dsh-snapshot-workspace-mcp-settled" }
   ]
 }

@@ -993,6 +993,48 @@ describe('WorkspaceBinder stored-decision recheck', () => {
   })
 })
 
+describe('WorkspaceBinder settlement event', () => {
+  it('emits binding-settled with the agent once its admission pass settles', async () => {
+    const { ctx, workspace, pidDir, warns } = await harness({ questions: 'none' })
+    await writeMcpJson(workspace, { fixture: fixtureEntry(pidDir) })
+    const settledAgents: Agent[] = []
+    ctx.on('mcp-workspace/binding-settled', ({ agent }) => { settledAgents.push(agent) })
+
+    const { agent } = await create(ctx, 'binder-settled', { cwd: workspace })
+    await until(() => settledAgents.length === 1)
+
+    expect(settledAgents).toEqual([agent])
+    expect(warns).toEqual(['mcp-workspace(fixture): not approved; no question UI is available'])
+  })
+
+  it('logs a binding-settled listener that throws', async () => {
+    const { ctx, workspace, errors } = await harness()
+    ctx.on('mcp-workspace/binding-settled', () => { throw new Error('listener broke') })
+
+    await create(ctx, 'binder-settled-throws', { cwd: workspace })
+    await until(() => errors.length === 1)
+
+    expect(errors).toEqual(['mcp-workspace: binding-settled listener failed: Error: listener broke'])
+  })
+
+  it('does not emit binding-settled for a pass that settles after the binder is disposed', async () => {
+    const { ctx, binder, workspace, pidDir } = await harness()
+    await writeMcpJson(workspace, { fixture: fixtureEntry(pidDir) })
+    const settledAgents: Agent[] = []
+    ctx.on('mcp-workspace/binding-settled', ({ agent }) => { settledAgents.push(agent) })
+    const gate: PromiseWithResolvers<void> = Promise.withResolvers()
+    reads.gate = gate.promise
+
+    await create(ctx, 'binder-settled-disposed', { cwd: workspace })
+    binder.dispose()
+    gate.resolve()
+    await until(() => reads.settled === 1)
+    await sleep(50)
+
+    expect(settledAgents).toEqual([])
+  })
+})
+
 describe('WorkspaceBinder disposal', () => {
   it('stops admission when the agent is disposed while .mcp.json is read', async () => {
     const { ctx, trust, workspace, pidDir } = await harness()
