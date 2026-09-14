@@ -97,6 +97,13 @@
     - id: credentials
       name: '@deepseek-ai/dsh-credentials-local'
 
+    # Workspace-declared MCP servers from `<session cwd>/.mcp.json`, admitted
+    # only by a saved or in-session user decision in `$DSH_HOME/mcp-trust.yaml`.
+    - id: mcp-workspace
+      name: '@deepseek-ai/dsh-mcp-workspace'
+      config:
+        trustFile: !!js dshHomePath('mcp-trust.yaml')
+
     # The pi-ai multi-provider twin, mounted dormant: zero routes (and no extra
     # models in the picker) until a `llm-pi-ai:` settings section supplies provider
     # profiles — then those routes register live, keys resolving per request
