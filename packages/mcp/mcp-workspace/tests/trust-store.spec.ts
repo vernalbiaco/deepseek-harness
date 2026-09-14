@@ -101,6 +101,21 @@ describe('TrustStore', () => {
     await expect(store.lookup(WORKSPACE, 'brandguard', 'sha256:abc')).rejects.toThrow(TrustStoreError)
   })
 
+  it('keeps the underlying read or parse failure as the TrustStoreError cause', async () => {
+    const invalidYaml = await trustFile()
+    await writeFile(invalidYaml, ': not valid yaml : [', 'utf8')
+    const parseFailure: unknown = await new TrustStore(invalidYaml).lookup(WORKSPACE, 'brandguard', 'sha256:abc').catch((error: unknown) => error)
+    expect(parseFailure).toBeInstanceOf(TrustStoreError)
+    expect((parseFailure as Error).cause).toBeInstanceOf(Error)
+
+    // A directory at the trust-file path fails the read with EISDIR, not ENOENT.
+    const directory = await trustFile()
+    await mkdir(directory)
+    const readFailure: unknown = await new TrustStore(directory).lookup(WORKSPACE, 'brandguard', 'sha256:abc').catch((error: unknown) => error)
+    expect(readFailure).toBeInstanceOf(TrustStoreError)
+    expect((readFailure as Error).cause).toMatchObject({ code: 'EISDIR' })
+  })
+
   it('two concurrent record calls on different servers both persist', async () => {
     const store = new TrustStore(await trustFile())
     await Promise.all([

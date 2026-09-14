@@ -28,7 +28,8 @@ export interface TrustDecisionInput {
 /**
  * Raised when the trust document cannot be read or does not match the
  * expected format. The caller must treat this as "no decision admits
- * anything" rather than fall back to a default.
+ * anything" rather than fall back to a default. The message names only the
+ * file; `cause` carries the underlying read or YAML failure when one exists.
  */
 export class TrustStoreError extends Error {}
 
@@ -60,7 +61,7 @@ function emptyDocument(): TrustDocument {
  */
 function missingDocument(error: unknown, filename: string): TrustDocument {
   if (error instanceof Error && 'code' in error && error.code === 'ENOENT') return emptyDocument()
-  throw new TrustStoreError(`mcp-workspace: cannot read trust file ${filename}`)
+  throw new TrustStoreError(`mcp-workspace: cannot read trust file ${filename}`, { cause: error })
 }
 
 /**
@@ -74,8 +75,8 @@ function parseDocument(text: string, filename: string): TrustDocument {
   let parsed: unknown
   try {
     parsed = parseYaml(text)
-  } catch {
-    throw new TrustStoreError(`mcp-workspace: invalid YAML in trust file ${filename}`)
+  } catch (error) {
+    throw new TrustStoreError(`mcp-workspace: invalid YAML in trust file ${filename}`, { cause: error })
   }
 
   const result = trustDocumentSchema.safeParse(parsed)
