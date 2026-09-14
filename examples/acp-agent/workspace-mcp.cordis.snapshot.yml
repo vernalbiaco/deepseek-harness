@@ -1,6 +1,7 @@
 # Keyless workspace-MCP composition. Include patches cannot target entries
 # behind a nested include, so this file restates the replay patches of
-# cordis.snapshot.yml and adds the credential and workspace MCP rows of
+# cordis.snapshot.yml except the subagent-settlement marker, which these
+# scenarios do not need, and adds the credential and workspace MCP rows of
 # workspace-mcp.cordis.yml. The snapshot harness sets `DSH_HOME` inside the
 # generated workspace, where the scenario seeds `mcp-trust.yaml`.
 - id: base
@@ -44,6 +45,10 @@
                   models:
                     - id: deepseek-v4-flash
                     - id: deepseek-v4-pro
+          # Plugin warnings reach the captured stderr, so a test can tell an
+          # undecided server's skip from a workspace without `.mcp.json`.
+          - id: stderr-log-exporter
+            name: './tests/fixtures/stderr-log-exporter.ts'
           - id: credentials
             name: '@deepseek-ai/dsh-credentials-local'
           - id: mcp-workspace
