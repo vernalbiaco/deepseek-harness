@@ -43,6 +43,8 @@ interface Harness {
   /** Fixture pid files; also the workspace path. */
   readonly dir: string
   readonly errors: string[]
+  /** Every logged line at every level, prefixed with its level. */
+  readonly logs: string[]
 }
 
 async function harness(
@@ -55,7 +57,14 @@ async function harness(
   const ctx = new Context()
   cleanups.push(() => ctx.fiber.dispose())
   const errors: string[] = []
-  ctx.logger.error = ((message: unknown) => { errors.push(String(message)) }) as typeof ctx.logger.error
+  const logs: string[] = []
+  for (const level of ['debug', 'info', 'warn'] as const) {
+    ctx.logger[level] = ((message: unknown) => { logs.push(`${level}: ${String(message)}`) }) as typeof ctx.logger[typeof level]
+  }
+  ctx.logger.error = ((message: unknown) => {
+    errors.push(String(message))
+    logs.push(`error: ${String(message)}`)
+  }) as typeof ctx.logger.error
   await mountAgentLoopTestDependencies(ctx)
   await ctx.plugin(PersistenceProbe)
   ctx.on('session/flush', () => {})
@@ -66,7 +75,7 @@ async function harness(
     resolveCredential: async ref => credentials[ref],
   })
   cleanups.push(() => pool.dispose())
-  return { ctx, pool, dir, errors }
+  return { ctx, pool, dir, errors, logs }
 }
 
 interface FixtureOverrides {
@@ -234,6 +243,25 @@ describe('WorkspacePool', () => {
     })
     expect(result.isError).toBe(false)
     expect(result.content[0]).toEqual({ type: 'text', text: 'secret-value' })
+  })
+
+  it('keeps a resolved credential out of every log line of a failed connection attempt', async () => {
+    const marker = `dsh-resolved-secret-${process.pid}`
+    // The argument value is a substring of the command value, so only a longest-first replacement restores the command placeholder.
+    const { pool, dir, logs } = await harness({ MCP_FIXTURE_CMD: `/nonexistent/${marker}`, MCP_FIXTURE_ARG: marker })
+    const lease = pool.acquire(dir, {
+      name: 'fixture',
+      fingerprint: 'sha256:missing-command',
+      credentialRefs: ['MCP_FIXTURE_ARG', 'MCP_FIXTURE_CMD'],
+      entry: { transport: 'stdio', command: '${MCP_FIXTURE_CMD}', args: ['${MCP_FIXTURE_ARG}'], env: {} },
+    })
+    await lease.ready
+    await lease.release()
+
+    expect(logs.join('\n')).not.toContain(marker)
+    expect(logs.filter(line => line.includes('connection attempt failed'))).toEqual([
+      'warn: mcp-client(fixture): connection attempt failed: Error: spawn ${MCP_FIXTURE_CMD} ENOENT',
+    ])
   })
 
   it('substitutes credentials into an HTTP server URL and headers', async () => {

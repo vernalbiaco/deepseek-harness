@@ -143,6 +143,8 @@ class PoolEntry {
   readonly attachments = new Set<Attachment>()
   private readonly ctx: Context
   private readonly options: WorkspacePoolOptions
+  /** Every credential value this entry has resolved, mapped to its reference name; kept across rotations for {@link describeError}. */
+  private readonly resolvedValues = new Map<string, string>()
   private generation: Generation
 
   constructor(ctx: Context, options: WorkspacePoolOptions, workspacePath: string, server: DeclaredServer) {
@@ -214,12 +216,15 @@ class PoolEntry {
     const handle = startConnection(this.ctx, config, this.options.reconnect, {
       sink,
       resolveConfig: () => this.resolveConfig(),
+      describeError: error => this.describeError(error),
     })
     return { handle, sink }
   }
 
   /**
-   * Resolve every credential reference and substitute it into the entry; runs before every connection attempt.
+   * Resolve every credential reference and substitute it into the entry; runs
+   * before every connection attempt. Each resolved value is remembered for
+   * {@link describeError}.
    * @returns the substituted connection config.
    * @throws `Error('credential <NAME> is not set')` for the first unset reference.
    */
@@ -229,8 +234,23 @@ class PoolEntry {
       const value = await this.options.resolveCredential(ref)
       if (value === undefined) throw new Error(`credential ${ref} is not set`)
       values.set(ref, value)
+      this.resolvedValues.set(value, ref)
     }
     return connectionConfig(this.workspacePath, this.server.name, substitutePlaceholders(this.server.entry, values), this.options)
+  }
+
+  /**
+   * Render a connection failure for mcp-client's log lines with every
+   * credential value this entry has resolved replaced by its `${NAME}`
+   * placeholder, longest value first so a value containing another is replaced whole.
+   * @param error - the caught failure.
+   * @returns the failure text without any resolved credential value.
+   */
+  private describeError(error: unknown): string {
+    let text = String(error)
+    const values = [...this.resolvedValues].filter(([value]) => value.length > 0).sort(([a], [b]) => b.length - a.length)
+    for (const [value, ref] of values) text = text.replaceAll(value, `\${${ref}}`)
+    return text
   }
 }
 

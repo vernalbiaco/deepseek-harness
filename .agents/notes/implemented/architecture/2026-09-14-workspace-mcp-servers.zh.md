@@ -16,7 +16,7 @@ MCP 服务器目前只能以 profile 层或 `--patch` 层中的 `@deepseek-ai/ds
 
 ### 对 `@deepseek-ai/dsh-mcp-client` 的修改
 
-`connection.ts` 中的监管器无需挂载插件即可复用。`startConnection(ctx, config, policy, options?)` 接收一个带两个成员的选项对象：
+`connection.ts` 中的监管器无需挂载插件即可复用。`startConnection(ctx, config, policy, options?)` 接收一个带三个成员的选项对象：
 
 ```ts
 import type { Config, ToolDefinitions } from '@deepseek-ai/dsh-mcp-client'
@@ -29,10 +29,11 @@ interface ToolSink {
 interface ConnectionOptions {
   sink?: ToolSink
   resolveConfig?: () => Promise<Config>
+  describeError?: (error: unknown) => string
 }
 ```
 
-`fetchToolDefinitions` 读取完 `tools/list` 分页并构建定义，不触碰注册表；`createRegistrySink` 是默认 sink，执行先释放再注册的替换以及回滚。插件的 `apply` 不传入任何选项，行为保持不变。`resolveConfig` 在每次连接尝试之前运行，因此解析凭据占位符的调用方在重连时能拿到轮换后的值；其拒绝与连接失败一样计入重连预算。构建一次的定义可服务所有 agent：图片接纳在执行时通过 `ctx.get` 读取 `attachments` 与 `llm`，并通过 `exec.agent` 读取调用路由，而 `ctx.tools.register` 保存定义时不会修改它。`index.ts` 导出 `startConnection`、`resolveReconnectPolicy`、`RECONNECT_DEFAULTS`、`fetchToolDefinitions`、`createRegistrySink` 和 `publicToolName`，以及类型 `ConnectionHandle`、`ConnectionOptions`、`ConnectionOutcome`、`ToolSink`、`ToolDefinitions` 和 `ToolBridgeOptions`；构建入口列表不变。
+`describeError` 为 `connection attempt failed` 与 `tool re-sync failed` 日志行渲染捕获的错误，因此替换凭据的调用方可以让凭据不进入日志。`fetchToolDefinitions` 读取完 `tools/list` 分页并构建定义，不触碰注册表；`createRegistrySink` 是默认 sink，执行先释放再注册的替换以及回滚。插件的 `apply` 不传入任何选项，行为保持不变。`resolveConfig` 在每次连接尝试之前运行，因此解析凭据占位符的调用方在重连时能拿到轮换后的值；其拒绝与连接失败一样计入重连预算。构建一次的定义可服务所有 agent：图片接纳在执行时通过 `ctx.get` 读取 `attachments` 与 `llm`，并通过 `exec.agent` 读取调用路由，而 `ctx.tools.register` 保存定义时不会修改它。`index.ts` 导出 `startConnection`、`resolveReconnectPolicy`、`RECONNECT_DEFAULTS`、`fetchToolDefinitions`、`createRegistrySink` 和 `publicToolName`，以及类型 `ConnectionHandle`、`ConnectionOptions`、`ConnectionOutcome`、`ToolSink`、`ToolDefinitions` 和 `ToolBridgeOptions`；构建入口列表不变。
 
 ### 包 `@deepseek-ai/dsh-mcp-workspace`
 
@@ -65,7 +66,7 @@ interface ConnectionOptions {
 
 ### 凭据
 
-`command`、`args`、`env`、`url` 和请求头值中的 `${NAME}` 占位符，在每次连接尝试之前通过 `ctx.credentials.resolve(credentialRef(NAME))` 解析，遵循进程环境、`$DSH_HOME/.credentials.yaml`、项目 `.env`、`$DSH_HOME/.env` 的凭据来源顺序。名称匹配 `@deepseek-ai/dsh-subprocess` 中 `SENSITIVE_ENV_PATTERN` 的 env 值，以及名称匹配该模式或为 `Authorization`、`Proxy-Authorization`、`Cookie` 的请求头值，必须包含占位符；否则该服务器被拒绝，日志只写服务器名和字段名，不写值。凭据未设置时跳过该服务器，记录 `mcp-workspace(<name>): credential <NAME> is not set`，且不启动连接。解析后的值从不进入问题或信任文件。stdio 子进程接收经过清理的父进程环境加上解析后的 `env`，与 `mcp-client` 子进程一致。
+`command`、`args`、`env`、`url` 和请求头值中的 `${NAME}` 占位符，在每次连接尝试之前通过 `ctx.credentials.resolve(credentialRef(NAME))` 解析，遵循进程环境、`$DSH_HOME/.credentials.yaml`、项目 `.env`、`$DSH_HOME/.env` 的凭据来源顺序。名称匹配 `@deepseek-ai/dsh-subprocess` 中 `SENSITIVE_ENV_PATTERN` 的 env 值，以及名称匹配该模式或为 `Authorization`、`Proxy-Authorization`、`Cookie` 的请求头值，必须包含占位符；否则该服务器被拒绝，日志只写服务器名和字段名，不写值。凭据未设置时跳过该服务器，记录 `mcp-workspace(<name>): credential <NAME> is not set`，且不启动连接。解析后的值从不进入问题、信任文件或日志：连接池传入 `describeError`，把它为该服务器解析过的每个值替换为对应的 `${NAME}` 占位符。stdio 子进程接收经过清理的父进程环境加上解析后的 `env`，与 `mcp-client` 子进程一致。
 
 ### 注册与 agent 资格
 

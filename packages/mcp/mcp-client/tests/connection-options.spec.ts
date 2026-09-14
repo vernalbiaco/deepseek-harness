@@ -339,6 +339,37 @@ describe('startConnection options', () => {
     expect(outcome.error).toBeDefined()
   })
 
+  it('writes connection attempt failures through describeError', async () => {
+    const ctx = await mountRegistry()
+    const warns: string[] = []
+    ctx.logger.warn = ((message: unknown) => { warns.push(String(message)) }) as typeof ctx.logger.warn
+    ctx.logger.error = (() => {}) as typeof ctx.logger.error
+    mockConnect.mockRejectedValue(new Error('spawn /opt/tok-secret-value/bin ENOENT'))
+    let calls = 0
+
+    const handle = startConnection(
+      ctx,
+      stdioConfig(),
+      resolveReconnectPolicy({ initialDelayMs: 1, maxDelayMs: 1, maxAttempts: 1 }, 'reconnect'),
+      {
+        resolveConfig: async () => {
+          calls += 1
+          if (calls === 1) throw new Error('config for tok-secret-value rejected')
+          return stdioConfig()
+        },
+        describeError: error => String(error).replaceAll('tok-secret-value', '${TOKEN}'),
+      },
+    )
+    await handle.ready
+    await vi.waitFor(() => { expect(handle.stopped()).toBe(true) })
+    await handle.dispose()
+
+    expect(warns.filter(line => line.includes('connection attempt failed'))).toEqual([
+      'mcp-client(srv): connection attempt failed: Error: config for ${TOKEN} rejected',
+      'mcp-client(srv): connection attempt failed: Error: spawn /opt/${TOKEN}/bin ENOENT',
+    ])
+  })
+
   it('stopped() is false while connected, true after budget exhaustion, and true after dispose()', async () => {
     const ctx = await mountRegistry()
 

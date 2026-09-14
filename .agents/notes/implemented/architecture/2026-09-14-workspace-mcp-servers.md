@@ -16,7 +16,7 @@ Loading a workspace's own server list without a gate is not acceptable. A stdio 
 
 ### Changes to `@deepseek-ai/dsh-mcp-client`
 
-The supervisor in `connection.ts` is reusable without mounting the plugin. `startConnection(ctx, config, policy, options?)` accepts an options object with two members:
+The supervisor in `connection.ts` is reusable without mounting the plugin. `startConnection(ctx, config, policy, options?)` accepts an options object with three members:
 
 ```ts
 import type { Config, ToolDefinitions } from '@deepseek-ai/dsh-mcp-client'
@@ -29,10 +29,11 @@ interface ToolSink {
 interface ConnectionOptions {
   sink?: ToolSink
   resolveConfig?: () => Promise<Config>
+  describeError?: (error: unknown) => string
 }
 ```
 
-`fetchToolDefinitions` drains `tools/list` and builds definitions without touching a registry, and `createRegistrySink` is the default sink that performs the dispose-then-register swap with rollback. The plugin's `apply` passes no options and keeps its behavior. `resolveConfig` runs before every connection attempt, so a caller that resolves credential placeholders sees rotated values on reconnect; a rejection counts toward the reconnect budget like a failed connect. A definition built once serves every agent: image admission reads `attachments` and `llm` through `ctx.get` and the calling route through `exec.agent` at execution time, and `ctx.tools.register` stores the definition without mutating it. `index.ts` exports `startConnection`, `resolveReconnectPolicy`, `RECONNECT_DEFAULTS`, `fetchToolDefinitions`, `createRegistrySink`, and `publicToolName`, plus the types `ConnectionHandle`, `ConnectionOptions`, `ConnectionOutcome`, `ToolSink`, `ToolDefinitions`, and `ToolBridgeOptions`; the build entry list is unchanged.
+`describeError` renders a caught error for the `connection attempt failed` and `tool re-sync failed` log lines, so a caller that substitutes credentials can keep them out of logs. `fetchToolDefinitions` drains `tools/list` and builds definitions without touching a registry, and `createRegistrySink` is the default sink that performs the dispose-then-register swap with rollback. The plugin's `apply` passes no options and keeps its behavior. `resolveConfig` runs before every connection attempt, so a caller that resolves credential placeholders sees rotated values on reconnect; a rejection counts toward the reconnect budget like a failed connect. A definition built once serves every agent: image admission reads `attachments` and `llm` through `ctx.get` and the calling route through `exec.agent` at execution time, and `ctx.tools.register` stores the definition without mutating it. `index.ts` exports `startConnection`, `resolveReconnectPolicy`, `RECONNECT_DEFAULTS`, `fetchToolDefinitions`, `createRegistrySink`, and `publicToolName`, plus the types `ConnectionHandle`, `ConnectionOptions`, `ConnectionOutcome`, `ToolSink`, `ToolDefinitions`, and `ToolBridgeOptions`; the build entry list is unchanged.
 
 ### Package `@deepseek-ai/dsh-mcp-workspace`
 
@@ -65,7 +66,7 @@ The trust file lives under `$DSH_HOME`, never in the workspace, so a project can
 
 ### Credentials
 
-`${NAME}` placeholders in `command`, `args`, `env`, `url`, and header values resolve through `ctx.credentials.resolve(credentialRef(NAME))` before every connection attempt, following the credential source order of process environment, `$DSH_HOME/.credentials.yaml`, the project `.env`, and `$DSH_HOME/.env`. An env value whose name matches `SENSITIVE_ENV_PATTERN` from `@deepseek-ai/dsh-subprocess`, and a header value whose name matches that pattern or is `Authorization`, `Proxy-Authorization`, or `Cookie`, must contain a placeholder; otherwise the server is refused and the log names the server and field without the value. A credential that is not set skips that server with `mcp-workspace(<name>): credential <NAME> is not set`, and no connection starts. Resolved values never enter questions or the trust file. Stdio children receive the scrubbed parent environment plus the resolved `env`, as `mcp-client` children do.
+`${NAME}` placeholders in `command`, `args`, `env`, `url`, and header values resolve through `ctx.credentials.resolve(credentialRef(NAME))` before every connection attempt, following the credential source order of process environment, `$DSH_HOME/.credentials.yaml`, the project `.env`, and `$DSH_HOME/.env`. An env value whose name matches `SENSITIVE_ENV_PATTERN` from `@deepseek-ai/dsh-subprocess`, and a header value whose name matches that pattern or is `Authorization`, `Proxy-Authorization`, or `Cookie`, must contain a placeholder; otherwise the server is refused and the log names the server and field without the value. A credential that is not set skips that server with `mcp-workspace(<name>): credential <NAME> is not set`, and no connection starts. Resolved values never enter questions, the trust file, or logs: the pool passes `describeError`, which replaces every value it has resolved for that server with its `${NAME}` placeholder. Stdio children receive the scrubbed parent environment plus the resolved `env`, as `mcp-client` children do.
 
 ### Registration and agent eligibility
 
