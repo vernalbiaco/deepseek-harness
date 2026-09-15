@@ -16,7 +16,7 @@ Status: implemented
 
 一套 Compose 编排从源码检出构建 CLI 与 Web UI，并运行三个 `dsh` 服务——`web`、单次任务的 `headless` 与 `api`——共用一个 `dsh-home` 卷，由该卷在镜像重新构建后持有 Profile 状态。`make` 目标承载常规操作，[README](../../../../README.zh.md) 在 `Run` 一节记录该编排。
 
-所有发布端口均绑定宿主机回环地址。由于 `dsh` 服务器绑定容器回环地址，每个对外暴露的服务都配一个 `socat` 边车，通过 `network_mode: "service:<name>"` 加入该服务的网络命名空间，并把发布端口向内转发。边车无法重新加入被其服务替换掉的命名空间，因此重启 `dsh` 服务时必须重建其边车而非重启它；`make docker-patch-plugins` 固化了这一顺序。
+所有发布端口均绑定宿主机回环地址。由于 `dsh` 服务器绑定容器回环地址，每个对外暴露的服务都配一个 `socat` 边车，通过 `network_mode: "service:<name>"` 加入该服务的网络命名空间，并把发布端口向内转发。重启 `dsh` 服务会替换该命名空间，而边车只有再次启动时才会重新加入，因此服务重启之后必须接着重启边车；`make docker-patch-plugins` 固化了这一顺序。
 
 `api` 服务仅用 Host 平面的条目组合出 `/api` 网关，不含 `web-app`、`frontend-static`、`modules` 或任何 `ui-*` 条目，因此程序无需浏览器客户端即可创建会话、选择模型、提交提示词并读取记录。它的 `connection` 条目携带字面量 `trustedHosts`，而不是注入 `webRuntime`——后者的提供方会无条件挂载已构建的前端产物。该 Profile 位于卷中而非仓库中，因为 Profile 属于由用户编辑并安装内容的部署状态。
 
@@ -48,7 +48,7 @@ Status: implemented
 
 直连模式下 Compose 不注入任何 DeepSeek 变量：基础文件一个都不转发，`dsh` 自行读取工作区的 `.env`，因此留在其中的 `DEEPSEEK_API_KEY` 会作为可写的 `project-env` 层解析，Web 的 Models 页面可在凭据文件中覆盖它。只有网关覆盖文件通过自己的 `environment:` 设置 `DEEPSEEK_API_KEY` 与 `DEEPSEEK_BASE_URL`，因为网关模式需要已签发的密钥和 bootstrap-only 的 base URL 出现在启动环境中。这正是 Models 卡片在直连模式下保持可写、在网关模式下显示为环境提供的原因：启动环境中的值对凭据存储只读，注入密钥会遮蔽该页面。
 
-模式是一套 Compose 文件集合的属性，因此每一个作用于运行中服务的 `make` 目标都针对同一套集合运行。`COMPOSE_FILE` 承载它：默认是基础文件，覆盖模式的目标各自扩展它，并将其导出，使目标内层 shell 循环中的调用也能继承。没有对应模式变体的目标 `make docker-patch-plugins` 改为从环境中取得该集合。`make docker-all` 是默认的直连模式全栈（Traefik 加各服务，DeepSeek 直连公开 API），`make docker-all-omni` 是其网关变体，同时组合两个覆盖文件；它们互相正交，且 Compose 会合并而非替换 `networks` 列表。之所以以直连为默认，是因为从未配置 OmniRoute 的部署也必须能启动，并且此时 DeepSeek 密钥归属 Models 页面而非注入的环境值。
+模式是一套 Compose 文件集合的属性，因此每一个作用于运行中服务的 `make` 目标都针对同一套集合运行。`COMPOSE_FILE` 承载它：默认是基础文件，覆盖模式的目标各自扩展它，并将其导出，使目标内层 shell 循环中的调用也能继承。没有对应模式变体的目标（例如 `make docker-omni-check`）改为从环境中取得该集合。`make docker-patch-plugins` 与 `make docker-check-plugins` 不读取集合：它们按 Compose 标签找到正在运行的容器，因为从调用方检出解析出的集合会让 `docker compose up` 以不同于服务启动时的配置重建该服务。`make docker-all` 是默认的直连模式全栈（Traefik 加各服务，DeepSeek 直连公开 API），`make docker-all-omni` 是其网关变体，同时组合两个覆盖文件；它们互相正交，且 Compose 会合并而非替换 `networks` 列表。之所以以直连为默认，是因为从未配置 OmniRoute 的部署也必须能启动，并且此时 DeepSeek 密钥归属 Models 页面而非注入的环境值。
 
 ### 第三方插件补丁
 
@@ -98,7 +98,7 @@ Status: implemented
 
 评估者无需本地工具链即可运行 `make docker-build && make docker-web`，程序则可针对 `api` 服务通过 HTTP 驱动 agent。Profile 状态、已安装插件与会话都能在镜像重新构建后留存。默认情况下没有任何东西可从宿主机之外访问；发布到回环地址之外始终是一次刻意的改动，README 说明了这样做授予了什么。
 
-有三条操作规则必须靠记忆遵守，因为没有任何机制强制它们。重启 `dsh` 服务时必须重建其边车。在对该包执行任何安装或更新之后必须重新应用插件补丁，`make docker-check-plugins` 让这一点可被检查。以及作用于运行中服务的目标必须携带该服务的 Compose 文件集合，否则它读到的配置与启动该服务时的并不相同。两处修复都应回到上游，在那里落地后即可让补丁目录退场。
+有三条操作规则必须靠记忆遵守，因为没有任何机制强制它们。重启 `dsh` 服务时必须重启其边车，边车只有再次启动时才会重新加入该服务被替换的网络命名空间。在对该包执行任何安装或更新之后必须重新应用插件补丁，`make docker-check-plugins` 让这一点可被检查。以及作用于运行中服务的目标必须携带该服务的 Compose 文件集合，否则它读到的配置与启动该服务时的并不相同。两处修复都应回到上游，在那里落地后即可让补丁目录退场。
 
 这些 Traefik 主机名只在 `/etc/hosts` 把它们映射到回环地址时才能解析，与其他 `*.local.raven.com` 名称一样；若没有该条目，这些名称可能被公网解析，请求随之离开本机。`api` Profile 的 `trustedHosts` 位于卷中而非仓库中，因此它与插件补丁有着相同的失效方式：重建该卷会丢弃它，相应路由将持续返回 403，直到它被恢复。
 

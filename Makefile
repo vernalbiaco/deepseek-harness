@@ -17,7 +17,7 @@
 #
 # Mode is a property of one make invocation. To point a target that has no
 # overlay variant of its own at a running overlay mode, pass the set in:
-#   COMPOSE_FILE=docker-compose.yml:docker-compose.omni-wire.yml make docker-patch-plugins
+#   COMPOSE_FILE=docker-compose.yml:docker-compose.omni-wire.yml make docker-omni-check
 # The separate-project files (infra, omni) keep their own -f flags, which take
 # precedence over COMPOSE_FILE.
 COMPOSE_PATH_SEPARATOR := :
@@ -40,7 +40,10 @@ ALL_COMPOSE_FILE := docker-compose.yml:docker-compose.raven.yml:docker-compose.o
 # Compose services whose dsh profile may carry a patched dsh-llm-local-token.
 # Each service boots the profile of the same name.
 PATCHED_SERVICES ?= web api
-PLUGIN_LIB = node_modules/dsh-llm-local-token/lib
+# The Compose project the plugin-patch targets act on; empty selects the only
+# running project that serves PATCHED_SERVICES from the dsh image.
+DSH_STACK_PROJECT ?=
+export DSH_STACK_PROJECT
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*## ' $(MAKEFILE_LIST) | sort | \
@@ -257,43 +260,14 @@ docker-ecr-push: ## Build the images and push them to ECR as :IMAGE_TAG and :lat
 		done; \
 	done
 
+# Both targets act on the running stack's containers, found by their Compose
+# labels, and never read COMPOSE_FILE: a file set resolved from this checkout
+# can differ from the one the stack started with, and `docker compose up` would
+# then recreate the service with that other configuration. See
+# docker/plugin-patches.sh.
 docker-patch-plugins: ## Reapply patches/dsh-llm-local-token to the running profiles
-	@for svc in $(PATCHED_SERVICES); do \
-		if ! docker compose ps --status running --services 2>/dev/null | grep -qx "$$svc"; then \
-			echo "skip $$svc: service is not running"; continue; \
-		fi; \
-		lib="/root/.dsh/profiles/$$svc/$(PLUGIN_LIB)"; \
-		if ! docker compose exec -T "$$svc" test -d "$$lib" 2>/dev/null; then \
-			echo "skip $$svc: dsh-llm-local-token is not installed in profile $$svc"; continue; \
-		fi; \
-		for f in claude-keychain.js token-store.js; do \
-			docker compose exec -T "$$svc" sh -c "test -f $$lib/$$f.orig || cp $$lib/$$f $$lib/$$f.orig"; \
-			docker compose cp "patches/dsh-llm-local-token/$$f" "$$svc:$$lib/$$f" >/dev/null 2>&1; \
-		done; \
-		echo "patched $$svc"; \
-		docker compose restart "$$svc" >/dev/null; \
-		echo "restarted $$svc"; \
-	done
-	@# web-proxy shares the web service network namespace, so it cannot rejoin
-	@# a namespace a restart replaced; it must be recreated, not restarted.
-	@for pair in "web web-proxy" "api api-proxy"; do \
-		set -- $$pair; \
-		if docker compose ps --status running --services 2>/dev/null | grep -qx "$$2"; then \
-			docker compose up -d --force-recreate "$$2" >/dev/null 2>&1 && echo "recreated $$2"; \
-		fi; \
-	done
-	@$(MAKE) --no-print-directory docker-check-plugins
+	@PATCHED_SERVICES="$(PATCHED_SERVICES)" ./docker/plugin-patches.sh apply
+	@PATCHED_SERVICES="$(PATCHED_SERVICES)" PLUGIN_CHECK_WAIT=60 ./docker/plugin-patches.sh check
 
 docker-check-plugins: ## Report which local-token routes each running profile serves
-	@for svc in $(PATCHED_SERVICES); do \
-		if ! docker compose ps --status running --services 2>/dev/null | grep -qx "$$svc"; then \
-			echo "$$svc: not running"; continue; \
-		fi; \
-		case "$$svc" in api) port=3081 ;; *) port=3080 ;; esac; \
-		routes=$$(docker compose exec -T "$$svc" node -e 'fetch("http://127.0.0.1:"+process.argv[1]+"/llm-local-token/usage").then(r=>r.json()).then(d=>console.log(d.providers.map(p=>p.provider).join(", "))).catch(()=>console.log("UNAVAILABLE"))' "$$port" 2>/dev/null | tr -d "\r"); \
-		if [ -z "$$routes" ] || [ "$$routes" = "UNAVAILABLE" ]; then \
-			echo "$$svc: usage route unavailable (plugin not loaded?)"; \
-		else \
-			echo "$$svc: $$routes"; \
-		fi; \
-	done
+	@PATCHED_SERVICES="$(PATCHED_SERVICES)" ./docker/plugin-patches.sh check

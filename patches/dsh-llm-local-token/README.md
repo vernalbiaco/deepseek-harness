@@ -31,7 +31,7 @@ Both rewrites preserve the file's mode and owner and keep sibling fields (`mcpOA
 make docker-patch-plugins     # copy into every running profile, then restart
 ```
 
-The target walks the `web` and `api` compose services, copies both modules into each one's `dsh-llm-local-token` installation, and restarts the service so the running process loads them. A service whose profile does not have the plugin installed is reported and skipped.
+The target finds the running `web` and `api` containers by their Compose labels, copies both modules into each profile's `dsh-llm-local-token` installation, restarts the container so the running process loads them, and restarts its `-proxy` sidecar so the sidecar rejoins the restarted network namespace. It reads no Compose file set, so it recreates and rebuilds nothing and works from any checkout or worktree; when more than one Compose project runs the dsh image, `DSH_STACK_PROJECT` names the one to patch. A service whose profile does not have the plugin installed is reported and skipped.
 
 Reapply after any `dsh plugin ... add`, update, or reinstall of this package: pnpm replaces the whole package directory, so the patched modules are silently overwritten and the Claude route disappears again. Verify with `make docker-check-plugins`, which lists the registered routes — a healthy `web` or `api` service reports both `openai-codex` and `anthropic`.
 

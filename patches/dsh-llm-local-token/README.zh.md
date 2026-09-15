@@ -31,7 +31,7 @@
 make docker-patch-plugins     # copy into every running profile, then restart
 ```
 
-该目标会遍历 `web` 与 `api` 这两个 compose 服务，把两个模块复制进各自的 `dsh-llm-local-token` 安装目录，并重启服务以便运行中的进程加载它们。若某个服务对应的 Profile 未安装该插件，则会被报告并跳过。
+该目标按 Compose 标签找到正在运行的 `web` 与 `api` 容器，把两个模块复制进各自 Profile 的 `dsh-llm-local-token` 安装目录，重启容器以便运行中的进程加载它们，并重启其 `-proxy` 边车，使边车重新加入被重启替换的网络命名空间。它不读取任何 Compose 文件集合，因此不会重建或重新构建任何内容，可从任意检出或 worktree 运行；当有多个 Compose 项目运行 dsh 镜像时，用 `DSH_STACK_PROJECT` 指定要打补丁的项目。若某个服务对应的 Profile 未安装该插件，则会被报告并跳过。
 
 在对该包执行任何 `dsh plugin ... add`、更新或重新安装之后都需要重新应用：pnpm 会替换整个包目录，因此打过补丁的模块会被静默覆盖，Claude 路由随之再次消失。可用 `make docker-check-plugins` 验证，它会列出已注册的路由——健康的 `web` 或 `api` 服务会同时报告 `openai-codex` 与 `anthropic`。
 
