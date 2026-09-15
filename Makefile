@@ -70,8 +70,11 @@ test-coverage: ## Run unit tests with the CI coverage gate
 hygiene: ## Run knip/publint/workspace-constraint checks
 	pnpm run hygiene
 
+# Extra `docker compose build` flags; docker-ecr-push passes --pull --no-cache
+# so a release image never reuses a cached layer's Debian packages.
+DOCKER_BUILD_FLAGS ?=
 docker-build: ## Build the dsh CLI image
-	docker compose build
+	docker compose build $(DOCKER_BUILD_FLAGS)
 
 # The bash sandbox probes for this static musl binary; without it every
 # sandboxed bash call fails closed. `pnpm run build:native` needs musl-tools
@@ -249,7 +252,7 @@ docker-ecr-push: ## Build the images and push them to ECR as :IMAGE_TAG and :lat
 		aws ecr describe-repositories --region $(AWS_REGION) --repository-names "$$repo" >/dev/null \
 			|| { echo "docker-ecr-push: cannot read ECR repository $$repo; if it is missing, run 'make docker-ecr-create'"; exit 1; }; \
 	done
-	DOCKER_DEFAULT_PLATFORM=$(ECR_PLATFORM) $(MAKE) --no-print-directory docker-build
+	DOCKER_DEFAULT_PLATFORM=$(ECR_PLATFORM) $(MAKE) --no-print-directory docker-build DOCKER_BUILD_FLAGS="--pull --no-cache"
 	@$(MAKE) --no-print-directory docker-ecr-login AWS_REGION=$(AWS_REGION) ECR_REGISTRY=$(ECR_REGISTRY)
 	@set -e; registry=$(ECR_REGISTRY); \
 	for image in $(ECR_IMAGES); do \
