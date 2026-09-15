@@ -438,6 +438,9 @@ importers:
       '@deepseek-ai/dsh-llm-deepseek':
         specifier: workspace:^
         version: link:../../packages/llm/llm-deepseek
+      '@deepseek-ai/dsh-llm-fallback':
+        specifier: workspace:^
+        version: link:../../packages/llm/llm-fallback
       '@deepseek-ai/dsh-llm-mock-server':
         specifier: workspace:^
         version: link:../../packages/test-support/llm-mock-server
@@ -847,9 +850,6 @@ importers:
       '@deepseek-ai/cordis':
         specifier: workspace:^
         version: link:../../../vendor/cordis
-      '@deepseek-ai/cordis-plugin-loader':
-        specifier: workspace:^
-        version: link:../../../vendor/loader
       '@deepseek-ai/dsh-agent':
         specifier: workspace:^
         version: link:../../core/agent
@@ -945,45 +945,15 @@ importers:
       '@deepseek-ai/cordis':
         specifier: workspace:^
         version: link:../../../vendor/cordis
-      '@deepseek-ai/cordis-plugin-include':
-        specifier: workspace:^
-        version: link:../../../vendor/include
-      '@deepseek-ai/cordis-plugin-loader':
-        specifier: workspace:^
-        version: link:../../../vendor/loader
-      '@deepseek-ai/dsh-api-gateway':
-        specifier: workspace:^
-        version: link:../gateway
       '@deepseek-ai/dsh-client-connection':
         specifier: workspace:^
         version: link:../../client/connection
       '@deepseek-ai/dsh-credentials':
         specifier: workspace:^
         version: link:../../credentials/credentials
-      '@deepseek-ai/dsh-credentials-local':
-        specifier: workspace:^
-        version: link:../../credentials/credentials-local
-      '@deepseek-ai/dsh-host-apiproxy':
-        specifier: workspace:^
-        version: link:../../host/apiproxy
-      '@deepseek-ai/dsh-host-webserver':
-        specifier: workspace:^
-        version: link:../../host/webserver
       '@deepseek-ai/dsh-invariants':
         specifier: workspace:^
         version: link:../../runtime-diagnostics/invariants
-      '@deepseek-ai/dsh-typert-protocol':
-        specifier: workspace:^
-        version: link:../../typert/protocol
-      '@deepseek-ai/dsh-typert-registry':
-        specifier: workspace:^
-        version: link:../../typert/registry
-      '@types/ws':
-        specifier: ^8.18.1
-        version: 8.18.1
-      ws:
-        specifier: ^8.21.0
-        version: 8.21.0
 
   packages/api/remotes:
     dependencies:
@@ -8276,15 +8246,24 @@ importers:
       '@deepseek-ai/dsh-agent-loop-testkit':
         specifier: workspace:^
         version: link:../../test-support/agent-loop-testkit
+      '@deepseek-ai/dsh-app-boot':
+        specifier: workspace:^
+        version: link:../../boot/app-boot
       '@deepseek-ai/dsh-atomic-write':
         specifier: workspace:^
         version: link:../../util/atomic-write
       '@deepseek-ai/dsh-credentials':
         specifier: workspace:^
         version: link:../../credentials/credentials
+      '@deepseek-ai/dsh-credentials-local':
+        specifier: workspace:^
+        version: link:../../credentials/credentials-local
       '@deepseek-ai/dsh-invariants':
         specifier: workspace:^
         version: link:../../runtime-diagnostics/invariants
+      '@deepseek-ai/dsh-launch-environment':
+        specifier: workspace:^
+        version: link:../../util/launch-environment
       '@deepseek-ai/dsh-llm':
         specifier: workspace:^
         version: link:../../llm/llm
@@ -8294,6 +8273,9 @@ importers:
       '@deepseek-ai/dsh-session':
         specifier: workspace:^
         version: link:../../core/session
+      '@deepseek-ai/dsh-session-persistence-jsonl':
+        specifier: workspace:^
+        version: link:../../session/session-persistence-jsonl
       '@deepseek-ai/dsh-subprocess':
         specifier: workspace:^
         version: link:../../subprocess/subprocess

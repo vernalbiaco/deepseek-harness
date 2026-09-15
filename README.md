@@ -53,7 +53,7 @@ make docker-down                                      # stop every service
 
 `DSH_WORKSPACE` selects the directory a service mounts as the agent workspace, and `workspaces/` is a second mount for unrelated checkouts. Profile state — installed plugins, sessions, and settings — lives in the `dsh-home` volume and outlives an image rebuild. Write a GitHub token with push access to `secrets/github-token` and the agent can push from any mounted checkout: the image ships git without ssh, so the containers reach GitHub over HTTPS through the credential helper in [`docker/git/`](docker/git/), which reads that file rather than an environment variable the agent's commands would never inherit.
 
-The `api` service serves the same `POST /api/<method>` surface the Web UI calls, composed without a browser client, so a program can create a session, select a model, submit a prompt, and read the transcript over HTTP: [`apps/discord-bot`](apps/discord-bot/README.md) is a Discord bridge over that service: write a bot token to `secrets/discord-token`, list the allowed Discord user ids in `.env`, and start it with `docker compose --profile discord up -d --no-deps discord-bot`.
+The `api` service serves the same `POST /api/<method>` surface the Web UI calls, composed without a browser client, so a program can create a session, select a model, submit a prompt, and read the transcript over HTTP.
 
 ```sh
 docker compose up -d api api-proxy                    # API at http://127.0.0.1:3081

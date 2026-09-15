@@ -99,12 +99,6 @@ docker-raven: COMPOSE_FILE := $(RAVEN_COMPOSE_FILE)
 docker-raven: ## Run web + API behind RavenStack's Traefik (harness.local.raven.com, harness-api.local.raven.com)
 	docker compose up web web-proxy api api-proxy
 
-docker-discord: ## Start the Discord bridge beside an already running api service (needs secrets/discord-token and DISCORD_ALLOWED_USER_IDS)
-	docker compose --profile discord up -d --no-deps discord-bot
-
-docker-discord-logs: ## Follow the Discord bridge's log
-	docker compose --profile discord logs -f discord-bot
-
 docker-certs: ## Mint the local CA and TLS certificate the HTTPS routes present
 	./docker/certs/generate.sh
 

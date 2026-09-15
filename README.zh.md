@@ -57,7 +57,7 @@ make docker-down                                      # stop every service
 
 `DSH_WORKSPACE` 决定服务将哪个目录挂载为 Agent 工作区，`workspaces/` 则是供其他无关检出使用的第二个挂载点。Profile 状态——已安装插件、会话与设置——保存在 `dsh-home` 卷中，镜像重新构建后依然保留。 把一个具备推送权限的 GitHub 令牌写入 `secrets/github-token`，代理即可从任一已挂载的检出推送：镜像自带 git 而没有 ssh，因此容器经由 [`docker/git/`](docker/git/) 中的凭据助手通过 HTTPS 访问 GitHub，该助手读取的是这个文件，而不是代理命令永远继承不到的环境变量。
 
-`api` 服务提供与 Web UI 所调用相同的 `POST /api/<method>` 接口，其组合不含浏览器客户端，因此程序可以通过 HTTP 创建会话、选择模型、提交提示词并读取记录： [`apps/discord-bot`](apps/discord-bot/README.md) 是基于该服务的 Discord 桥接：把 bot 令牌写入 `secrets/discord-token`，在 `.env` 中列出允许的 Discord 用户 id，然后用 `docker compose --profile discord up -d --no-deps discord-bot` 启动它。
+`api` 服务提供与 Web UI 所调用相同的 `POST /api/<method>` 接口，其组合不含浏览器客户端，因此程序可以通过 HTTP 创建会话、选择模型、提交提示词并读取记录。
 
 ```sh
 docker compose up -d api api-proxy                    # API at http://127.0.0.1:3081
