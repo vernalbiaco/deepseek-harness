@@ -1,0 +1,22 @@
+- region "Allow MCP servers declared in {{cwd}}/workspace/.mcp.json?":
+  - text: MCP servers
+  - heading "Allow MCP servers declared in {{cwd}}/workspace/.mcp.json?" [level=2]
+  - button "Collapse the question card" [expanded]:
+    - img
+  - button "Dismiss all questions":
+    - img
+  - list:
+    - listitem: "fixture (stdio): {{node}} {{fixtures}}/mcp-echo-server.mjs; credentials: MCP_FIXTURE_TOKEN missing"
+  - radiogroup:
+    - radio "Allow for this workspace": 1 Allow for this workspace
+    - radio "Allow this session": 2 Allow this session
+    - radio "Deny": 3 Deny
+    - textbox "Type your answer"
+  - button "Previous question" [disabled]:
+    - img
+  - text: 1 / 1
+  - button "Next question" [disabled]:
+    - img
+  - status
+  - button "Skip this question"
+  - button "Submit" [disabled]
