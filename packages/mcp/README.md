@@ -28,6 +28,7 @@ The client owns each configured connection; the shared resource package supplies
 |---|---|
 | [`mcp-client/`](mcp-client/README.md) | Connect one MCP server, expose its tools and instructions, and provide its resource operations |
 | [`mcp-resources/`](mcp-resources/README.md) | Discover and read resources through shared tools with explicit server selection |
+| [`mcp-workspace/`](mcp-workspace/README.md) | Mount workspace `.mcp.json` servers on each eligible agent after a stored or session user decision |
 
 -----
 

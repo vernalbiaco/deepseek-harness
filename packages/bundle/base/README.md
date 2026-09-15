@@ -59,7 +59,7 @@ Default file editing uses `read`, `write`, and `edit`. The `str_replace_editor` 
         maxOutputChars: 16000
 ```
 
-The bundle mounts [MCP resources](../../mcp/mcp-resources/README.md) once. Configure only [MCP client entries](../../mcp/mcp-client/README.md) for the servers you need. Clients mounted by another provider also count as configured in their scope. Callers with no configured server in scope receive no MCP tools or prompt text.
+The bundle mounts [MCP resources](../../mcp/mcp-resources/README.md) once. Configure only [MCP client entries](../../mcp/mcp-client/README.md) for the servers you need. Clients mounted by another provider also count as configured in their scope. Callers with no configured server in scope receive no MCP tools or prompt text. The bundle also mounts [workspace MCP servers](../../mcp/mcp-workspace/README.md), which mounts a workspace's `.mcp.json` servers on each eligible agent after a user decision.
 
 ### Shell tools per platform
 

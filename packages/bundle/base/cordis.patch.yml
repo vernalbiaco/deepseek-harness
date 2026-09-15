@@ -471,6 +471,11 @@
     - id: mcp-resources
       name: '@deepseek-ai/dsh-mcp-resources'
 
+    - id: mcp-workspace
+      name: '@deepseek-ai/dsh-mcp-workspace'
+      config:
+        trustFile: !!js dshHomePath('mcp-trust.yaml')
+
     # ── rows every mode mounts, whose values each overlay may state ──────────────
 
     # The tool registry. Presentation mode is a deployment choice; omitting it here

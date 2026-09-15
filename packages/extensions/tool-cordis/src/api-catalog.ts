@@ -3483,6 +3483,14 @@ export const EVENT_API: readonly EventApiEntry[] = [
     parameters: [{ name: 'options', description: 'the full request. A LOOP-built request carries the process-local {@link markAgentLoopRequest} identity and arrives deep-frozen (mutation throws): its content is a pure function of the session log (the reconstructability Agent Note), so listeners read it, never rewrite it. Hand-built calls do not carry that marker; their messages already obey the immutable creation contract.' }],
   },
   {
+    name: 'mcp-workspace/binding-settled',
+    mode: 'emit',
+    signature: '\'mcp-workspace/binding-settled\'(payload: { agent: Agent }): void',
+    summary: 'An eligible agent\'s admission pass settled: its `.mcp.json` read, stored-decision lookups, credential checks, questions, and mounts all finished, including when nothing was admitted, a step failed, or the agent was disposed first.',
+    description: 'An eligible agent\'s admission pass settled: its `.mcp.json` read, stored-decision lookups, credential checks, questions, and mounts all finished, including when nothing was admitted, a step failed, or the agent was disposed first. Emitted in memory only; it carries no model-visible state and is not persisted. Not emitted after the plugin is disposed.',
+    parameters: [{ name: 'payload', description: '.agent - the agent whose admission pass settled.' }],
+  },
+  {
     name: 'permission-presets/catalog-changed',
     mode: 'emit',
     signature: '\'permission-presets/catalog-changed\'(): void',

@@ -136,4 +136,32 @@ register(server: string, provider: McpResourceProvider): () => void
 ```
 
 Source: [`packages/mcp/mcp-resources/src/index.ts`](../../packages/mcp/mcp-resources/src/index.ts)
+
+<a id="mcp-workspace-events"></a>
+
+### `mcp-workspace/*` events
+
+<a id="mcp-workspacebinding-settled--emit"></a>
+
+#### `mcp-workspace/binding-settled` — emit
+
+An eligible agent's admission pass settled: its `.mcp.json` read, stored-decision lookups, credential checks, questions, and mounts all finished, including when nothing was admitted, a step failed, or the agent was disposed first. Emitted in memory only; it carries no model-visible state and is not persisted. Not emitted after the plugin is disposed.
+
+```ts cordis-catalog
+/**
+ * An eligible agent's admission pass settled: its `.mcp.json` read,
+ * stored-decision lookups, credential checks, questions, and mounts all
+ * finished, including when nothing was admitted, a step failed, or the
+ * agent was disposed first. Emitted in memory only; it carries no
+ * model-visible state and is not persisted. Not emitted after the plugin is
+ * disposed.
+ * @param payload.agent - the agent whose admission pass settled.
+ * @mode emit
+ */
+'mcp-workspace/binding-settled'(payload: { agent: Agent }): void
+```
+
+Types: [Agent](core.md)
+
+Source: [`packages/mcp/mcp-workspace/src/index.ts`](../../packages/mcp/mcp-workspace/src/index.ts)
 <!-- END GENERATED cordis-surface -->

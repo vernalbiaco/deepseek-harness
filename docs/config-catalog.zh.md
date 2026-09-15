@@ -450,7 +450,7 @@ export interface ConnectionRecoveryConfig {
 }
 ```
 
-来源：[`packages/client/connection/src/index.ts:80`](../packages/client/connection/src/index.ts)
+来源：[`packages/client/connection/src/index.ts:79`](../packages/client/connection/src/index.ts)
 
 <a id="deepseek-aidsh-client-hmr"></a>
 
@@ -1701,6 +1701,30 @@ export interface ReconnectConfig {
 ```
 
 来源：[`packages/mcp/mcp-client/src/index.ts:104`](../packages/mcp/mcp-client/src/index.ts)
+
+<a id="deepseek-aidsh-mcp-workspace"></a>
+
+## `@deepseek-ai/dsh-mcp-workspace`
+
+需要：`agents` · `credentials`
+
+```ts config-catalog
+/** Plugin configuration. */
+export interface Config {
+  /** Absolute path of the trust document holding per-workspace server decisions; never inside a workspace. */
+  trustFile: string
+  /** Longest agent creation waits for saved `allow` servers' first connection attempts, in milliseconds. */
+  admissionTimeoutMs: number
+  /** Per-tool-call timeout in milliseconds for every workspace server. */
+  toolCallTimeoutMs: number
+  /** Reconnect policy for every workspace server; omitted fields use the `mcp-client` defaults. */
+  reconnect?: McpClient.ReconnectConfig
+}
+```
+
+依赖：[`McpClient`](../packages/mcp/mcp-client/src/index.ts)
+
+来源：[`packages/mcp/mcp-workspace/src/index.ts:43`](../packages/mcp/mcp-workspace/src/index.ts)
 
 <a id="deepseek-aidsh-message-feedback"></a>
 

@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-15-workspace-mcp-servers-per-agent.md
+2026-09-15-workspace-mcp-servers-per-agent.md: 88ccd88252cea4f076206a1ddb991d7bf921bede
+2026-09-15-workspace-mcp-servers-per-agent.zh.md: 50a186f8857e9ed541d68ef5b770d6e681ccf9f0
