@@ -91,6 +91,13 @@ The gateway image floats on `:latest`, so the component that holds the minted ke
 
 Each mode's targets carry their own Compose file set. Pointing a target that has no mode variant — `make docker-patch-plugins`, say — at services already running in gateway or Traefik mode means passing that set in as `COMPOSE_FILE`.
 
+`make docker-ecr-push` builds the stack's two images for `linux/amd64` and pushes them to Amazon ECR as `terra/dsh` and `terra/dsh-web-proxy`, each tagged with the short commit and `latest`, in the account and region of the current AWS CLI identity. It refuses a working tree with uncommitted or untracked files, because the build copies the checkout into the image and the tag would name a commit the image does not match; `ALLOW_DIRTY=1` overrides. A repository that cannot be read stops the push before the build, and `make docker-ecr-create` creates both repositories with scan on push. `AWS_REGION`, `ECR_REGISTRY`, `ECR_REPOSITORY_PREFIX`, and `IMAGE_TAG` override the defaults.
+
+```sh
+make docker-ecr-create                                   # once: create terra/dsh and terra/dsh-web-proxy
+make docker-ecr-push                                     # build, then push :<commit> and :latest
+```
+
 ## Community and support
 
 - Submit feedback or bug reports through [GitHub Discussions](https://github.com/deepseek-ai/deepseek-harness/discussions).
