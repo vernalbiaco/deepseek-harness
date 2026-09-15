@@ -33,7 +33,7 @@ The shipped apps own these command lines:
 
 | Profile | Arguments |
 |---|---|
-| `web` | `--host`, `--port`, repeatable `--trusted-host`, `--configuration-authority`, `--no-open` |
+| `web` | `--host`, `--port`, repeatable `--trusted-host`, `--no-open` |
 | `headless` | the task text, as the positional argument |
 | `sdk` | no options; stdio carries the JSON-RPC protocol |
 | `sdk-minimal` | no options; stdio carries the same JSON-RPC protocol |
@@ -76,7 +76,7 @@ Git-hosted plugins that ship sources build during install through their `prepare
 
 ## Web alias
 
-`dsh web` is a hardcoded alias for `--profile web`; the flags after it belong to the web app, whose ordinary bundle provider parses them. `--host` and `--port` override the composed values of the rows that carry them, repeatable `--trusted-host` contributes invocation authorities through `ctx.webRuntime.trustedHosts` (a deployment expression concatenates its own authorities), `--configuration-authority trusted-host` admits those authorities to Settings, credentials, and preset management (the default `loopback` keeps them loopback-only; the flag is refused without a `--trusted-host`, and it is not a login — the ingress in front of those names must supply one), and `--no-open` disables the default-browser handoff for this invocation. The client-plugin HMR receiver is always mounted and stays idle until a separate `pnpm run dev:web` watcher rebuilds client bundles.
+`dsh web` is a hardcoded alias for `--profile web`; the flags after it belong to the web app, whose ordinary bundle provider parses them. `--host` and `--port` override the composed values of the rows that carry them, repeatable `--trusted-host` contributes invocation authorities through `ctx.webRuntime.trustedHosts` (a deployment expression concatenates its own authorities), and `--no-open` disables the default-browser handoff for this invocation. The client-plugin HMR receiver is always mounted and stays idle until a separate `pnpm run dev:web` watcher rebuilds client bundles.
 
 ```sh
 dsh web
@@ -102,7 +102,7 @@ The base bundle mounts the native DeepSeek adapter, settings and credential prov
 
 Feedback is recorded in the Session log without starting model work. The [DeepSeek session-log contributor](../../../packages/session/session-log-deepseek/README.md) sends complete unaccepted log suffixes with subsequent DeepSeek requests by default, including requests sent through configured gateways; set its `enabled` configuration to `false` to opt out. [OTel session upload](../../../packages/session/session-telemetry-otel/README.md) applies to all users and providers, including `deepseek-official`, without requiring a request header. The base defaults to `FEEDBACK_ONLY`: new own text feedback, message ratings, edits, and withdrawals release the complete canonical prefix through that event, including stored context; later records wait for the next explicit feedback. Inherited parent feedback does not authorize a fork. Requests, restoration, mount, and HMR do not trigger capture. SDK batching may finish an authorized upload without further interaction or model work. `DSH_TELEMETRY_MODE=DISABLED` disables OTel delivery; `FULL` is rejected, and any non-empty `DSH_TELEMETRY_DISABLED` disables its row. `DSH_TELEMETRY_OTLP_URL` selects the collector. Handoff is best-effort, not collector acceptance; no durable outbox or retry guarantee is provided. These OTel settings do not enable or disable the DeepSeek contribution. Neither path changes model input, but exports can include message text, tool arguments and results, and workspace paths.
 
-Install external plugin bundles through `dsh plugin --profile <name> add <package-or-git-spec>`. The installed package owns its dependencies and contributes its declared `cordis.patch.yml` layer. The CLI also ships `@deepseek-ai/dsh-mcp-client` as a dependency for patch layers. The base bundle mounts [`dsh-mcp-workspace`](../../../packages/mcp/mcp-workspace/README.md), which connects a server declared in a workspace `.mcp.json` only after a user decision, stored for the workspace in `$DSH_HOME/mcp-trust.yaml` or given for one session, because each server command is trusted executable code outside the agent sandbox.
+Install external plugin bundles through `dsh plugin --profile <name> add <package-or-git-spec>`. The installed package owns its dependencies and contributes its declared `cordis.patch.yml` layer. The CLI also ships `@deepseek-ai/dsh-mcp-client` as a dependency for patch layers, but no MCP server is enabled by default because each server command is trusted executable code outside the agent sandbox.
 
 <a id="source-execution"></a>
 ## Source execution

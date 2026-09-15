@@ -26,10 +26,6 @@ import type {} from '@deepseek-ai/dsh-tools'
 export { createMcpToolDefinition } from './tools.ts'
 export type { McpResult, McpToolDefinitionOptions } from './tools.ts'
 export type { ReconnectConfig, ResolvedReconnectPolicy } from './connection.ts'
-export { startConnection, resolveReconnectPolicy, RECONNECT_DEFAULTS } from './connection.ts'
-export { fetchToolDefinitions, createRegistrySink, publicToolName } from './tools.ts'
-export type { ConnectionHandle, ConnectionOptions, ConnectionOutcome } from './connection.ts'
-export type { ToolSink, ToolDefinitions, ToolBridgeOptions } from './tools.ts'
 
 /** Cordis plugin name used by loader diagnostics. */
 export const name = 'mcp-client'
@@ -41,7 +37,7 @@ export const inject = ['tools']
 const DEFAULT_TOOL_CALL_TIMEOUT_MS = 60_000
 
 /** Valid `serverName`, kept below the public tool-name budget. */
-export const SERVER_NAME_PATTERN = /^[A-Za-z0-9_-]{1,32}$/
+const SERVER_NAME_PATTERN = /^[A-Za-z0-9_-]{1,32}$/
 
 /**
  * Live `serverName` reservations per registration scope. Agent-scoped MCP

@@ -21,9 +21,6 @@
 # Authentication for that name is Cloudflare Access, outside this repository:
 # nothing here enforces it, and the name serves an unauthenticated agent that
 # can run code in the container the moment Access is removed or misconfigured.
-# `--configuration-authority trusted-host` leans on the same login: it opens
-# Settings, credentials, and preset management — loopback-only by default — to
-# a browser on any of the trusted names, so the public one persists settings.
 #
 # The proxy sidecars share their service's network namespace
 # (`network_mode: "service:web"`), so the port Traefik targets is the socat

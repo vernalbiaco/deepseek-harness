@@ -35,7 +35,7 @@ dsh --profile rescue
 
 | Profile | 参数 |
 |---|---|
-| `web` | `--host`、`--port`、可重复的 `--trusted-host`、`--configuration-authority`、`--no-open` |
+| `web` | `--host`、`--port`、可重复的 `--trusted-host`、`--no-open` |
 | `headless` | 任务文本，作为位置参数 |
 | `sdk` | 无选项；stdio 携带 JSON-RPC 协议 |
 | `sdk-minimal` | 无选项；stdio 携带相同的 JSON-RPC 协议 |
@@ -78,7 +78,7 @@ dsh --profile tui
 
 ## Web 别名
 
-`dsh web` 是 `--profile web` 的硬编码别名；写在它之后的 flag 属于 web 应用，由组合包中的普通提供方解析。`--host` 和 `--port` 覆盖承载它们的那些行的组合取值，可重复的 `--trusted-host` 通过 `ctx.webRuntime.trustedHosts` 提供本次调用的 authority（部署表达式会拼接自己的 authority），`--configuration-authority trusted-host` 让这些 authority 可达设置、凭据与 preset 管理（默认的 `loopback` 让它们仍只限回环；没有 `--trusted-host` 时该 flag 会被拒绝，而且它不是登录——这些名称前面的入口必须自行提供登录），`--no-open` 则只对本次调用关闭默认浏览器交接。客户端插件 HMR（热模块替换）接收器始终挂载，在单独运行的 `pnpm run dev:web` watcher 重建客户端 bundle 之前保持空闲。
+`dsh web` 是 `--profile web` 的硬编码别名；写在它之后的 flag 属于 web 应用，由组合包中的普通提供方解析。`--host` 和 `--port` 覆盖承载它们的那些行的组合取值，可重复的 `--trusted-host` 通过 `ctx.webRuntime.trustedHosts` 提供本次调用的 authority（部署表达式会拼接自己的 authority），`--no-open` 则只对本次调用关闭默认浏览器交接。客户端插件 HMR（热模块替换）接收器始终挂载，在单独运行的 `pnpm run dev:web` watcher 重建客户端 bundle 之前保持空闲。
 
 ```sh
 dsh web

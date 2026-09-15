@@ -64,7 +64,6 @@ export const apply = ctx => globalThis.__webStartupApply(ctx)
     '    openBrowser: !!js ctx.webStartup.openBrowser',
     '    port: !!js ctx.webStartup.port ?? 3080',
     '    trustedHosts: !!js ctx.webStartup.trustedHosts',
-    '    configurationAuthority: !!js ctx.webStartup.configurationAuthority',
     '- id: provider',
     `  name: ${pathToFileURL(join(dir, 'provider.mjs')).href}`,
     '',
@@ -100,14 +99,12 @@ describe('web command-line provider', () => {
       '--port', '8080',
       '--trusted-host', 'lab.internal', 'lab-2.internal',
       '--trusted-host', '10.0.0.9',
-      '--configuration-authority', 'trusted-host',
     ])
     expect(values).toEqual({
       host: '127.0.0.1',
       openBrowser: false,
       port: 8080,
       trustedHosts: ['lab.internal', 'lab-2.internal', '10.0.0.9'],
-      configurationAuthority: 'trusted-host',
     })
     expect(observed.readerConfig).toEqual(values)
     expect(observed.exits).toEqual([])
@@ -115,13 +112,12 @@ describe('web command-line provider', () => {
 
   it('leaves deployment values to each consumer when flags omit them', async () => {
     const { values, observed } = await bootProvider([])
-    expect(values).toEqual({ openBrowser: true, trustedHosts: [], configurationAuthority: 'loopback' })
+    expect(values).toEqual({ openBrowser: true, trustedHosts: [] })
     expect(observed.readerConfig).toEqual({
       host: '127.0.0.1',
       openBrowser: true,
       port: 3080,
       trustedHosts: [],
-      configurationAuthority: 'loopback',
     })
   })
 
@@ -141,18 +137,6 @@ describe('web command-line provider', () => {
     expect(values).toBeUndefined()
     expect(observed.readerConfig).toBeUndefined()
     expect(observed.exits).toEqual([1])
-  })
-
-  it('rejects an unknown configuration authority, and trusted-host with nothing to admit', async () => {
-    const unknown = await bootProvider(['--configuration-authority', 'everyone'])
-    expect(unknown.observed.out).toContain('--configuration-authority must be one of loopback, trusted-host, got "everyone"')
-    expect(unknown.values).toBeUndefined()
-    expect(unknown.observed.exits).toEqual([1])
-    const nothingToAdmit = await bootProvider(['--configuration-authority', 'trusted-host'])
-    expect(nothingToAdmit.observed.out).toContain('at least one --trusted-host is required')
-    expect(nothingToAdmit.values).toBeUndefined()
-    expect(nothingToAdmit.observed.readerConfig).toBeUndefined()
-    expect(nothingToAdmit.observed.exits).toEqual([1])
   })
 
   it('rejects the intentionally unsupported all-interfaces host before the consumer activates', async () => {
