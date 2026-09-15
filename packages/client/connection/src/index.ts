@@ -49,7 +49,6 @@ export type {
   ApiGateVerdict,
   ApiRequestGate,
 } from './gates.ts'
-export { headersOf } from './gates.ts'
 
 export { API_PATH } from './api-path.ts'
 

@@ -7,7 +7,7 @@
 
 import { randomUUID } from 'node:crypto'
 import { Context, Service, symbols } from '@deepseek-ai/cordis'
-import { headersOf, type ConnectionRpcHandler } from '@deepseek-ai/dsh-client-connection'
+import type { ConnectionRpcHandler } from '@deepseek-ai/dsh-client-connection'
 import { Deque } from '@deepseek-ai/dsh-deque'
 import type { WebUpgradeRoute } from '@deepseek-ai/dsh-host-webserver'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
@@ -219,7 +219,8 @@ export class TypertGatewayService extends Service implements TypertGateway {
             }
             const verdict = await webCtx.connection.authorizeApiRequest({
               transport: 'websocket',
-              headers: headersOf(req.headers),
+              headers: new Headers(Object.entries(req.headers).flatMap(([name, value]) =>
+                value === undefined ? [] : [[name, Array.isArray(value) ? value.join(', ') : value]])),
             })
             if (!verdict.admitted) {
               rejectRemoteStreamUpgrade(socket, verdict.status)
