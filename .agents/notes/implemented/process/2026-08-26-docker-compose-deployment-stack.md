@@ -56,6 +56,14 @@ Both fixes concern credential ownership. Upstream reads the current Claude crede
 
 A `dsh plugin` install or update replaces the whole package directory and silently drops these modules, taking the affected route with them. `make docker-check-plugins` reports the registered routes so the loss is observable rather than inferred.
 
+### Publishing images to Amazon ECR
+
+`make docker-ecr-push` pushes the images `docker compose build` produces, `dsh:local` and `dsh-web-proxy:local`, to ECR repositories named `dsh` and `dsh-web-proxy` under `ECR_REPOSITORY_PREFIX` (`terra/` by default), each tagged with the ten-character commit and `latest`. The registry account and region come from the AWS CLI identity when the recipe runs, so the Makefile names no account, and the build runs the `docker-build` target rather than a second build definition.
+
+The push refuses a working tree that has uncommitted or untracked files unless `ALLOW_DIRTY=1` is passed. The Dockerfile's `COPY . .` sends every file `.dockerignore` does not exclude, and `.dockerignore` names known secret locations such as `.env` and `secrets/` but not arbitrary untracked files, so a dirty tree would copy local files into a registry and the commit tag would name source the image does not match. A gitignored file that `.dockerignore` does not exclude still enters the image, because the check reads only what git reports.
+
+The platform is pinned to `linux/amd64` because the builder stage compiles the Landlock launcher only into the linux-x64 platform package, so an image built for arm64 would have no sandbox backend. Repository creation is the separate `make docker-ecr-create` target, which enables scan on push; the push stops before building when a repository cannot be read. The local `dsh:local` tag is shared by every checkout on the host, so a build in another checkout between this target's build and its `docker tag` step changes what is pushed.
+
 ## Alternatives considered
 
 **Publish the web port on every interface.** The original arrangement, and the reason this note exists: it made an unauthenticated agent reachable from the local network. The harness itself refuses `--host 0.0.0.0` for the same reason, so honoring that refusal at the CLI while undoing it at the port mapping would be incoherent.

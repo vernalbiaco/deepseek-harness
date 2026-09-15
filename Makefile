@@ -6,6 +6,7 @@
 	docker-patch-plugins docker-check-plugins \
 	docker-omni docker-omni-down docker-omni-web docker-omni-headless \
 	docker-omni-key docker-omni-check docker-all docker-all-omni docker-all-down docker-discord docker-discord-logs \
+	docker-ecr-login docker-ecr-create docker-ecr-push \
 	sandbox-launcher
 
 # The compose file set every bare `docker compose` below runs against. Overlay
@@ -203,6 +204,61 @@ docker-down: ## Stop and remove docker compose services
 
 docker-logs: ## Follow docker compose logs
 	docker compose logs -f
+
+# ECR publication of the images `docker compose build` produces, each entry
+# `<local image>=<repository name>`. The registry account and region come from
+# the AWS CLI identity at recipe time (`?=` defers the calls), so `make help`
+# never reaches AWS. The platform is pinned because the image builds the
+# Landlock launcher only into the linux-x64 platform package; an arm64 image
+# would have no sandbox backend and fail every bash call closed.
+ECR_IMAGES := dsh:local=dsh dsh-web-proxy:local=dsh-web-proxy
+ECR_REPOSITORY_PREFIX ?= terra/
+ECR_PLATFORM ?= linux/amd64
+AWS_REGION ?= $(shell aws configure get region)
+ECR_REGISTRY ?= $(shell aws sts get-caller-identity --query Account --output text).dkr.ecr.$(AWS_REGION).amazonaws.com
+IMAGE_TAG ?= $(shell git rev-parse --short=10 HEAD)
+
+docker-ecr-login: ## Log docker in to the ECR registry of the current AWS identity and region
+	@test -n "$(AWS_REGION)" || { echo "docker-ecr-login: no AWS region; set AWS_REGION or run 'aws configure'"; exit 1; }
+	aws ecr get-login-password --region $(AWS_REGION) | docker login --username AWS --password-stdin $(ECR_REGISTRY)
+
+docker-ecr-create: ## Create the ECR repositories docker-ecr-push targets, with scan on push
+	@test -n "$(AWS_REGION)" || { echo "docker-ecr-create: no AWS region; set AWS_REGION or run 'aws configure'"; exit 1; }
+	@for image in $(ECR_IMAGES); do \
+		repo=$(ECR_REPOSITORY_PREFIX)$${image#*=}; \
+		if err=$$(aws ecr describe-repositories --region $(AWS_REGION) --repository-names "$$repo" 2>&1 >/dev/null); then \
+			echo "$$repo: exists"; \
+		elif echo "$$err" | grep -q RepositoryNotFoundException; then \
+			aws ecr create-repository --region $(AWS_REGION) --repository-name "$$repo" \
+				--image-scanning-configuration scanOnPush=true --query repository.repositoryUri --output text || exit 1; \
+		else \
+			echo "$$err"; exit 1; \
+		fi; \
+	done
+
+docker-ecr-push: ## Build the images and push them to ECR as :IMAGE_TAG and :latest (clean tree; ALLOW_DIRTY=1 overrides)
+	@if [ -z "$(ALLOW_DIRTY)" ] && [ -n "$$(git status --porcelain)" ]; then \
+		echo "docker-ecr-push: uncommitted or untracked files would be copied into images tagged $(IMAGE_TAG):"; \
+		git status --short; \
+		echo "Commit or remove them, or pass ALLOW_DIRTY=1."; \
+		exit 1; \
+	fi
+	@test -n "$(AWS_REGION)" || { echo "docker-ecr-push: no AWS region; set AWS_REGION or run 'aws configure'"; exit 1; }
+	@for image in $(ECR_IMAGES); do \
+		repo=$(ECR_REPOSITORY_PREFIX)$${image#*=}; \
+		aws ecr describe-repositories --region $(AWS_REGION) --repository-names "$$repo" >/dev/null \
+			|| { echo "docker-ecr-push: cannot read ECR repository $$repo; if it is missing, run 'make docker-ecr-create'"; exit 1; }; \
+	done
+	DOCKER_DEFAULT_PLATFORM=$(ECR_PLATFORM) $(MAKE) --no-print-directory docker-build
+	@$(MAKE) --no-print-directory docker-ecr-login AWS_REGION=$(AWS_REGION) ECR_REGISTRY=$(ECR_REGISTRY)
+	@set -e; registry=$(ECR_REGISTRY); \
+	for image in $(ECR_IMAGES); do \
+		src=$${image%%=*}; dest=$$registry/$(ECR_REPOSITORY_PREFIX)$${image#*=}; \
+		for tag in $(IMAGE_TAG) latest; do \
+			docker tag "$$src" "$$dest:$$tag"; \
+			docker push "$$dest:$$tag"; \
+		done; \
+	done
 
 docker-patch-plugins: ## Reapply patches/dsh-llm-local-token to the running profiles
 	@for svc in $(PATCHED_SERVICES); do \

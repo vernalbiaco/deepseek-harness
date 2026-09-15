@@ -56,6 +56,14 @@ Status: implemented
 
 一次 `dsh plugin` 安装或更新会替换整个包目录并静默丢弃这些模块，相应路由也随之消失。`make docker-check-plugins` 会报告已注册的路由，使这种丢失可被观察到而非只能靠推断。
 
+### 向 Amazon ECR 发布镜像
+
+`make docker-ecr-push` 把 `docker compose build` 产出的 `dsh:local` 与 `dsh-web-proxy:local` 两个镜像推送到 `ECR_REPOSITORY_PREFIX`（默认 `terra/`）下名为 `dsh` 与 `dsh-web-proxy` 的 ECR 仓库，每个镜像都打上十位提交哈希与 `latest` 两个标签。镜像仓库所属的账号与区域在配方运行时取自 AWS CLI 身份，因此 Makefile 中不出现任何账号；构建直接运行 `docker-build` 目标，而不另设第二套构建定义。
+
+除非传入 `ALLOW_DIRTY=1`，工作区存在未提交或未跟踪的文件时推送会拒绝执行。Dockerfile 的 `COPY . .` 会发送 `.dockerignore` 未排除的所有文件，而 `.dockerignore` 只列出 `.env`、`secrets/` 等已知的敏感位置，并不排除任意未跟踪文件；因此不干净的工作区会把本地文件复制进镜像仓库，提交标签所指的源码也就与镜像内容不符。被 git 忽略但未被 `.dockerignore` 排除的文件仍会进入镜像，因为该检查只读取 git 报告的内容。
+
+平台固定为 `linux/amd64`，因为构建阶段只把 Landlock 启动器编译进 linux-x64 平台包，为 arm64 构建的镜像将没有任何沙箱后端。创建仓库是单独的 `make docker-ecr-create` 目标，它会开启推送时扫描；仓库无法读取时，推送会在构建之前中止。本地的 `dsh:local` 标签由主机上的所有检出共用，因此若另一个检出在本目标的构建与 `docker tag` 步骤之间完成构建，推送的内容就会随之改变。
+
 ## Alternatives considered
 
 **将 web 端口发布到所有网络接口。** 这正是最初的做法，也是本记录存在的原因：它让一个不带认证的 agent 可从局域网访问。harness 自身出于同样理由拒绝 `--host 0.0.0.0`，因此在 CLI 层尊重该拒绝、却在端口映射层将其推翻，是自相矛盾的。

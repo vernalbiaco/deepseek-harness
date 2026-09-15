@@ -95,6 +95,13 @@ make docker-all-omni                                     # full stack with model
 
 每种模式的目标各自携带一套 Compose 文件集合。若要让没有对应模式变体的目标（例如 `make docker-patch-plugins`）作用于已经运行在网关模式或 Traefik 模式下的服务，就需要通过 `COMPOSE_FILE` 把该集合传入。
 
+`make docker-ecr-push` 以 `linux/amd64` 构建该编排的两个镜像，并推送到当前 AWS CLI 身份所属账号与区域的 Amazon ECR，仓库分别为 `terra/dsh` 与 `terra/dsh-web-proxy`，每个镜像都打上短提交哈希与 `latest` 两个标签。工作区存在未提交或未跟踪的文件时它会拒绝执行，因为构建会把整个检出复制进镜像，标签所指的提交就与镜像内容不符；传入 `ALLOW_DIRTY=1` 可跳过该检查。无法读取的仓库会在构建之前中止推送，`make docker-ecr-create` 则会创建这两个仓库并开启推送时扫描。`AWS_REGION`、`ECR_REGISTRY`、`ECR_REPOSITORY_PREFIX` 与 `IMAGE_TAG` 可覆盖默认值。
+
+```sh
+make docker-ecr-create                                   # once: create terra/dsh and terra/dsh-web-proxy
+make docker-ecr-push                                     # build, then push :<commit> and :latest
+```
+
 ## 社区与支持
 
 - 通过 [GitHub Discussions](https://github.com/deepseek-ai/deepseek-harness/discussions) 提交反馈或 bug 报告。
