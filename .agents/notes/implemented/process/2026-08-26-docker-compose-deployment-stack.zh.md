@@ -26,7 +26,7 @@ Status: implemented
 
 运行时阶段在安装 git 之前执行 `apt-get upgrade`，因此镜像携带的是构建运行时已发布的 Debian 安全更新，而不只是基础镜像标签中的版本——该标签只在上游重新构建时才会变化。在其上方的某一行发生变化之前，Docker 会从构建缓存中复用这一层，因此 `make docker-ecr-push` 以 `--pull --no-cache` 构建；而 `make docker-build` 为本地重新构建保留缓存，因而可能产出软件包较旧的镜像。
 
-镜像会构建 Landlock 启动器。bash 沙箱提供方先探测 `bwrap`，再探测工作区 linux-x64 平台包所解析的静态 `landlock-run` 二进制；工作区只携带该包的 C 源码，二进制交由需要 `musl-tools` 的 `pnpm run build:native` 生成。跳过这一步的镜像两个后端都没有，因此在基础 bundle 的 `workspace-write` 策略下，每次 bash 调用都会以 `SANDBOX_UNAVAILABLE` 封闭失败，而 headless 运行没有可供升级的审批渠道。因此构建阶段会安装 `musl-tools`，并在工作区构建之前运行原生构建；二进制随 `/app` 的复制进入运行时阶段。在 Docker 默认 seccomp 配置下，该启动器在宿主机内核 ABI 上探测为部分强制，但仍会拒绝授权之外的写入。
+镜像会构建 Landlock 启动器。bash 沙箱提供方先探测 `bwrap`，再探测工作区 linux-x64 平台包所解析的静态 `landlock-run` 二进制；工作区只携带该包的 C 源码，二进制交由需要 `musl-tools` 的 `pnpm run build:native` 生成。跳过这一步的镜像两个后端都没有，因此在基础 bundle 的 `workspace-write` 策略下，每次 bash 调用都会以 `SANDBOX_UNAVAILABLE` 封闭失败，而 headless 运行没有可供升级的审批渠道。因此构建阶段会安装 `musl-tools`，并在工作区构建之前运行原生构建；二进制随 `/app` 的复制进入运行时阶段。两个阶段都使用 Debian trixie 基础镜像 `node:22-trixie-slim`；在该基础镜像上以 `--no-install-recommends` 安装 `musl-tools` 不会带来汇编器，`musl-gcc` 会以 `cannot execute 'as'` 失败：构建阶段通过 `g++` 获得 `binutils`，而在该基础镜像的临时容器中编译同一份源码的 `make sandbox-launcher` 会在 `musl-tools` 之外一并安装 `binutils`。在 Docker 默认 seccomp 配置下，该启动器在宿主机内核 ABI 上探测为部分强制，但仍会拒绝授权之外的写入。
 
 ### 经共享 Traefik 路由
 

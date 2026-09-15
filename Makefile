@@ -86,8 +86,8 @@ LANDLOCK_SRC := native/landlock-run/packages/entry/src/main.c
 LANDLOCK_BIN_DIR := native/landlock-run/packages/linux-x64/bin
 sandbox-launcher: ## Build the Landlock launcher for source launches on a host without musl-tools (uses Docker)
 	mkdir -p $(LANDLOCK_BIN_DIR)
-	docker run --rm -v "$(CURDIR)/$(LANDLOCK_SRC):/src/main.c:ro" -v "$(CURDIR)/$(LANDLOCK_BIN_DIR):/out" node:22-bookworm-slim sh -c \
-		'apt-get update -qq >/dev/null && apt-get install -y -qq --no-install-recommends musl-tools >/dev/null \
+	docker run --rm -v "$(CURDIR)/$(LANDLOCK_SRC):/src/main.c:ro" -v "$(CURDIR)/$(LANDLOCK_BIN_DIR):/out" node:22-trixie-slim sh -c \
+		'apt-get update -qq >/dev/null && apt-get install -y -qq --no-install-recommends musl-tools binutils >/dev/null \
 		&& musl-gcc -std=c11 -Os -Wall -Wextra -Werror -static -s -o /out/landlock-run /src/main.c \
 		&& chown $(shell id -u):$(shell id -g) /out/landlock-run'
 	$(LANDLOCK_BIN_DIR)/landlock-run --probe
