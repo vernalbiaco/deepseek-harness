@@ -1,20 +1,31 @@
-# @deepseek-ai/dsh-api-key-auth
+---
+description: "API key admission gate for the /api transport: admits a browser session that also presents a configured bearer secret."
+kind: "package-reference"
+---
+# API Key Auth
 
 English | [中文](README.zh.md)
 
-An API key admission gate for the `/api` transport. It registers one gate on [`dsh-client-connection`](../../client/connection/README.md)'s `ApiGateRegistry` ([gates](../../client/connection/src/gates.ts)) that admits a caller presenting a configured bearer secret and denies every other caller; it never grants the privileged-method plane.
+## Summary
 
-A request is admitted when its `Authorization` header carries `Bearer <secret>` and `<secret>` matches one configured key's resolved credential, compared with `timingSafeEqual`. On a match the gate returns `{ allow: true, principal: <key name>, privileged: false }`; `privileged` is unconditional and not configurable, so no config makes a keyed caller privileged. A request with no bearer credential and a request with an unrecognized one both answer `401`. A `CONFIGURATION_METHODS` or `DESKTOP_METHODS` member (settings, credentials, preset management, native dialogs — each set re-checked against its own narrower fence, loopback for the desktop set and the `configurationAuthority` list for the configuration plane; see [gates.ts](../../client/connection/src/gates.ts) and `dsh-client-connection`'s `index.ts`) requires both an aggregate `privileged: true` verdict and passing the loopback-same-origin trust fence; this gate's `privileged: false` alone answers `403` regardless of where the request originated, which is the point — a relay terminating at loopback would otherwise pass the fence on transport alone. Composition — which profile mounts this plugin, and whether that profile also relaxes the trust fence — decides who reaches the configuration plane; no request-level test can distinguish a relayed request from a local one.
+`@deepseek-ai/dsh-api-key-auth` registers one admission gate on [`dsh-client-connection`](../../client/connection/README.md)'s gate registry ([`gates.ts`](../../client/connection/src/gates.ts)). The gate admits a request whose `Authorization` header carries `Bearer <secret>` matching one configured key's resolved credential and refuses every other request with `401`. Connection runs gates only after its Host/Origin fence and its browser-session cookie check, so an admitted request needs both a browser session and a key.
 
-## Config
+## Table of Contents
 
-| Key | Default | Meaning |
-|---|---|---|
-| `keys[].name` | — | Audit label for one accepted key; unique across the list, never a secret. Logged as the principal on admission; every denial logs the literal `none` in its place. |
-| `keys[].secret` | — | Credential reference resolving to the key's secret: a bare POSIX shell identifier (for example `DSH_KEY_CI`), matching the same form [`dsh-credentials`](../../credentials/credentials/README.md) reads elsewhere, resolved through `ctx.credentials` by whichever credentials provider the composition mounts. Resolved once per configured key per request, so a rotated secret needs no restart. |
-| `order` | `100` | This gate's run order among all registered gates ([`ApiGateRegistry`](../../client/connection/src/gates.ts)), leaving room for gates that must run earlier. A duplicate order across gates is a registration error. |
+- [Use this package](#use-this-package)
+- [Configuration](#configuration)
+- [Model Experience](#model-experience)
+- [Known Limitations and Deferred Work](#known-limitations-and-deferred-work)
+- [Dev Note](#dev-note)
 
-At least one key is required; an empty `keys` list is a load error, and a duplicate `keys[].name` is a load error. A malformed `keys[].secret` reference fails the same way, at load rather than at the first request.
+-----
+
+<a id="use-this-package"></a>
+## Use this package
+
+Mount the plugin in a profile that also mounts `dsh-client-connection` and a credentials provider. The secret comparison uses `timingSafeEqual`. On a match the gate returns `{ allow: true, principal: <key name>, privileged: false }`; `privileged` is always `false`, and the current Connection has no method that reads it. A request without a bearer credential and a request with an unrecognized one both answer `401` with a `www-authenticate: Bearer` challenge on the HTTP path; a refused `/api/remote.mux` upgrade answers the gate's status.
+
+Connection refuses a request without a valid browser-session cookie before any gate runs, so a program holding only a key receives Connection's `401`, not this gate's decision.
 
 ```yaml
 - id: api-key-auth
@@ -27,6 +38,22 @@ At least one key is required; an empty `keys` list is a load error, and a duplic
         secret: DSH_KEY_CI
 ```
 
+-----
+
+<a id="configuration"></a>
+## Configuration
+
+| Field | Default | Meaning |
+|---|---|---|
+| `keys[].name` | — | Audit label for one accepted key; unique across the list, never a secret. Logged as the principal on admission; every denial logs `none` in its place. |
+| `keys[].secret` | — | Credential reference resolving to the key's secret, a bare POSIX shell identifier such as `DSH_KEY_CI`, resolved through `ctx.credentials` on every request, so a rotated secret needs no restart. |
+| `order` | `100` | This gate's run order among all registered gates; a duplicate order across gates is a registration error. |
+
+An empty `keys` list, a duplicate `keys[].name`, and a malformed `keys[].secret` reference are load errors. The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-api-key-auth) is the exhaustive source for accepted fields and their JSDoc.
+
+-----
+
+<a id="model-experience"></a>
 ## Model Experience
 
 None, as this package admits or refuses transport requests and contributes nothing to a model request.
@@ -37,10 +64,24 @@ None; this package neither assembles nor sends a provider request.
 
 ## Known Limitations and Deferred Work
 
-- **A gated profile is reachable by programmatic clients only** — a browser cannot set an `Authorization` header on a WebSocket handshake ([`WebApiClient`](../../client/connection/src/client/web-api-client.ts) opens both downlinks with a bare `new WebSocket(url)`), so the Web UI must stay on an ungated loopback profile.
-- **Authentication, not authorization** — every accepted key reaches the same agent methods, workspace, and model quota, so a leaked key is a full agent compromise short of the configuration plane; per-key scopes would extend `ApiGateDecision` rather than replace it.
-- **One credential read per configured key per request** — resolution is per request so a rotated secret needs no restart; a deployment with many keys would need a different store and its own invalidation.
-- **Match position is observable by timing** — each secret comparison is constant-time, but the loop returns on the first match, so elapsed time reveals a key's position in the list. The list is deployment configuration, not a secret.
+<a id="known-limitations-and-deferred-work"></a>
+
+- **No key-only client can reach `/api`** — Connection's browser-session check precedes every gate, so this package cannot admit a program that has no browser cookie.
+- **A gated profile refuses the Web UI's stream** — a browser cannot set `Authorization` on a WebSocket handshake, so mounting this gate on a browser profile refuses its `/api/remote.mux` upgrade.
+- **Authentication, not authorization** — every accepted key reaches the same agent methods, workspace, and model quota.
+- **One credential read per configured key per request** — a deployment with many keys would need a different store and its own invalidation.
+- **Match position is observable by timing** — each comparison is constant-time, but the loop returns on the first match; the key list is deployment configuration, not a secret.
 - **Secret length is not hidden** — an unequal length answers before the constant-time compare, which `timingSafeEqual` requires.
-- **No rate limiting or lockout** — the gate answers every request; blunting brute force belongs to whatever fronts the deployment.
-- **An unauthenticated caller still costs a full request buffer** — [`http-bridge.ts`](../../client/connection/src/http-bridge.ts) reads the whole body into memory, up to `maxRequestBodyBytes` (160 MiB by default), before the Fetch handler that runs the gates exists, so refusal cannot precede the allocation. The limit is pre-existing and inherent to the bridge, but a remotely reachable profile is where it becomes reachable by an unauthenticated caller; lower the cap or bound request size in whatever fronts the deployment.
+- **No rate limiting or lockout** — blunting brute force belongs to whatever fronts the deployment.
+
+<a id="dev-note"></a>
+### Dev Note
+
+<details>
+<summary>Working context for maintainers — click to expand</summary>
+
+The gate was designed for a Connection that admitted cookie-less loopback and trusted-host requests; the [admission-gate Agent Note](../../../.agents/notes/implemented/architecture/2026-08-26-api-request-gates-and-key-authentication.md) records that design.
+
+</details>
+
+**Runtime invariant:** No companion is published. This package owns no event stream or mutable runtime data; its validated key list and gate registration live in one `apply` call's closure.

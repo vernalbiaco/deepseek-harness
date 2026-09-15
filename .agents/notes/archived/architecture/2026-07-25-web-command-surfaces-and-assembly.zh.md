@@ -35,7 +35,7 @@ Archived: 2026-09-04
 ### fixture 命令路由与装配
 
 - connection fixture 补命令路由（fixture + fake-api）：keyless 台架可跑完整命令流（目录、执行、popup 选择）。
-- apps/cli 装配挂全部新包；tsconfig path map / reference 集补齐；目录/文档随 wire 与事件再生成。
+- apps/cli 装配挂全部新包；tsconfig path map / reference 集补齐；catalog/docs 随 wire 与事件再生成。
 
 ### 装配级验收：slash-flow 快照
 

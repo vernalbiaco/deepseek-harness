@@ -48,7 +48,7 @@ services:
     # `harness.local.raven.com` the client's readiness handshake fails, and
     # the session list stays empty while the connection retries forever.
     # Serving that name over HTTPS would also earn a secure context.
-    command: ["web", "--no-open", "--trusted-host", "harness.local.raven.com", "--trusted-host", "harness.localhost", "--trusted-host", "harness.ernestojpamajr.com", "--configuration-authority", "trusted-host"]
+    command: ["web", "--no-open", "--trusted-host", "harness.local.raven.com", "--trusted-host", "harness.localhost", "--trusted-host", "harness.ernestojpamajr.com"]
     networks:
       - default
       - hybrid_public

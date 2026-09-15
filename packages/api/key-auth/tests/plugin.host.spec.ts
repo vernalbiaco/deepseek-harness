@@ -118,7 +118,7 @@ describe('api-key-auth gate', () => {
     await expect(gate().authorize(withKey('secret-a')))
       .resolves.toEqual({ allow: true, principal: 'laptop', privileged: false })
 
-    await fiber.update({ keys: [{ name: 'ci', secret: 'B' }] })
+    fiber.update({ keys: [{ name: 'ci', secret: 'B' }] })
     await fiber.await()
     expect(gates.length).toBe(1)
     await expect(gate().authorize(withKey('secret-a')))

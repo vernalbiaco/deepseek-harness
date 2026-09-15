@@ -82,8 +82,8 @@ docker-build: ## Build the dsh CLI image
 # throwaway container and writes the binary where the workspace's linux-x64
 # platform package resolves it. The output is gitignored; rerun after a
 # `git clean -x` or a fresh clone. The image builds its own copy (Dockerfile).
-LANDLOCK_SRC := native/landlock-run/packages/entry/src/main.c
-LANDLOCK_BIN_DIR := native/landlock-run/packages/linux-x64/bin
+LANDLOCK_SRC := native/system/packages/entry/src/main.c
+LANDLOCK_BIN_DIR := native/system/packages/linux-x64/bin
 sandbox-launcher: ## Build the Landlock launcher for source launches on a host without musl-tools (uses Docker)
 	mkdir -p $(LANDLOCK_BIN_DIR)
 	docker run --rm -v "$(CURDIR)/$(LANDLOCK_SRC):/src/main.c:ro" -v "$(CURDIR)/$(LANDLOCK_BIN_DIR):/out" node:22-trixie-slim sh -c \

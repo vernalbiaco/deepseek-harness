@@ -24,9 +24,9 @@ RUN pnpm install --frozen-lockfile
 # The bash sandbox probes for the static Landlock launcher in the workspace's
 # linux-x64 platform package. The workspace ships its C source, not the
 # binary, so build it here; without it every sandboxed bash call fails closed
-# (the image has no bwrap either). The binary lands under native/ and rides
-# the /app copy into the runtime stage.
-RUN pnpm --dir native/landlock-run run build:native
+# (the image has no bwrap either). The binaries land under
+# native/system/packages/linux-x64 and ride the /app copy into the runtime stage.
+RUN pnpm --dir native/system run build:native
 RUN pnpm run build
 # .git is only needed to stamp the build; the runtime image doesn't ship repository history.
 RUN rm -rf .git

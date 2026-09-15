@@ -199,6 +199,32 @@ export interface Config {
 
 Source: [`packages/api/gateway/src/index.ts:119`](../packages/api/gateway/src/index.ts)
 
+<a id="deepseek-aidsh-api-key-auth"></a>
+
+## `@deepseek-ai/dsh-api-key-auth`
+
+Requires: `connection` · `credentials`
+
+```ts config-catalog
+/** Plugin configuration. */
+export interface Config {
+  /** Accepted keys; an empty list is a load error. */
+  keys: KeyConfig[]
+  /** Gate run order among all registered gates; defaults to `100` when omitted. */
+  order?: number
+}
+
+/** One accepted key: an audit label and the credential holding its secret. */
+export interface KeyConfig {
+  /** Audit label; unique across the list, never a secret. */
+  name: string
+  /** Credential reference resolving to the secret. */
+  secret: string
+}
+```
+
+Source: [`packages/api/key-auth/src/index.ts:33`](../packages/api/key-auth/src/index.ts)
+
 <a id="deepseek-aidsh-api-session-controller"></a>
 
 ## `@deepseek-ai/dsh-api-session-controller`
@@ -422,7 +448,7 @@ export interface ConnectionRecoveryConfig {
 }
 ```
 
-Source: [`packages/client/connection/src/index.ts:72`](../packages/client/connection/src/index.ts)
+Source: [`packages/client/connection/src/index.ts:80`](../packages/client/connection/src/index.ts)
 
 <a id="deepseek-aidsh-client-hmr"></a>
 
@@ -1187,32 +1213,6 @@ export interface DeepSeekCatalogModel {
 Depends on: [`ModelModality`](../packages/llm/llm/src/index.ts) · [`RetryPolicyConfig`](../packages/llm/llm/src/index.ts) · [`SystemPromptUpdate`](../packages/llm/llm/src/index.ts)
 
 Source: [`packages/llm/llm-deepseek/src/config.ts:25`](../packages/llm/llm-deepseek/src/config.ts)
-
-<a id="deepseek-aidsh-llm-fallback"></a>
-
-## `@deepseek-ai/dsh-llm-fallback`
-
-Requires: `agents`
-
-```ts config-catalog
-/** Composition entry for the failover chain. */
-export interface Config {
-  /** Ordered backup routes tried after the session's current route fails. */
-  backups: FallbackRoute[]
-  /** Failure codes that move the cursor; defaults to {@link DEFAULT_FAILOVER_CODES}. */
-  failoverCodes?: string[]
-}
-
-/** One provider route in the failover chain. */
-export interface FallbackRoute {
-  /** Registered provider route. */
-  provider: string
-  /** Provider-owned model id. */
-  model: string
-}
-```
-
-Source: [`packages/llm/llm-fallback/src/config.ts:33`](../packages/llm/llm-fallback/src/config.ts)
 
 <a id="deepseek-aidsh-llm-pi-ai"></a>
 
@@ -3734,7 +3734,6 @@ Imported as libraries by other packages; a `cordis.yml` cannot load them.
 
 - `@deepseek-ai/dsh-agent-loop-testkit` ([`packages/test-support/agent-loop-testkit/src/index.ts`](../packages/test-support/agent-loop-testkit/src/index.ts))
 - `@deepseek-ai/dsh-anonymous-user-id` ([`packages/identity/anonymous-user-id/src/index.ts`](../packages/identity/anonymous-user-id/src/index.ts))
-- `@deepseek-ai/dsh-api-key-auth` ([`packages/api/key-auth/src/index.ts`](../packages/api/key-auth/src/index.ts))
 - `@deepseek-ai/dsh-app-boot` ([`packages/boot/app-boot/src/index.ts`](../packages/boot/app-boot/src/index.ts))
 - `@deepseek-ai/dsh-atomic-write` ([`packages/util/atomic-write/src/index.ts`](../packages/util/atomic-write/src/index.ts))
 - `@deepseek-ai/dsh-base` ([`packages/bundle/base/src/index.ts`](../packages/bundle/base/src/index.ts))

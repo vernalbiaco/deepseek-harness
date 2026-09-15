@@ -606,21 +606,6 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 
 ### `llm/*`
 
-<a id="llmfallback--log-only"></a>
-
-#### `llm/fallback` — log-only
-
-```ts persistence-catalog
-/**
- * Durable, non-surface record of one move from a failing route to the next
- * configured backup. Required on read, matching `llm/retry`: the envelope's
- * `ignorable` marker has no writer path through `Session.append()`.
- */
-'llm/fallback': LlmFallbackEventData
-```
-
-来源：[`packages/llm/llm-fallback/src/types.ts:21`](../packages/llm/llm-fallback/src/types.ts)
-
 <a id="llmretry--log-only"></a>
 
 #### `llm/retry` — log-only

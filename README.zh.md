@@ -57,7 +57,7 @@ make docker-down                                      # stop every service
 
 `DSH_WORKSPACE` 决定服务将哪个目录挂载为 Agent 工作区，`workspaces/` 则是供其他无关检出使用的第二个挂载点。Profile 状态——已安装插件、会话与设置——保存在 `dsh-home` 卷中，镜像重新构建后依然保留。 把一个具备推送权限的 GitHub 令牌写入 `secrets/github-token`，代理即可从任一已挂载的检出推送：镜像自带 git 而没有 ssh，因此容器经由 [`docker/git/`](docker/git/) 中的凭据助手通过 HTTPS 访问 GitHub，该助手读取的是这个文件，而不是代理命令永远继承不到的环境变量。
 
-`api` 服务提供与 Web UI 所调用相同的 `POST /api/<method>` 接口，其组合不含浏览器客户端，因此程序可以通过 HTTP 创建会话、选择模型、提交提示词并读取记录。
+`api` 服务提供与 Web UI 所调用相同的 `POST /api/<method>` 接口，其组合不含浏览器客户端。
 
 ```sh
 docker compose up -d api api-proxy                    # API at http://127.0.0.1:3081
@@ -67,11 +67,11 @@ docker compose up -d api api-proxy                    # API at http://127.0.0.1:
 
 Web UI 需要浏览器的安全上下文，而纯 HTTP 只会把它授予 `127.0.0.1` 以及以 `.localhost` 结尾的名称；在其他任何主机名上，会话列表都会保持为空，连接则不断重试。因此该覆盖文件还会路由 `harness.localhost` 与 `harness-api.localhost`，并用本地签发的证书以 HTTPS 提供全部名称：先运行一次 `make docker-certs`，再运行 `make docker-certs-trust`，把该 CA 加入当前用户的浏览器信任库。
 
-`harness.ernestojpamajr.com` 面向互联网提供 Web UI。本机上的一条 Cloudflare 隧道把该名称转发到 Traefik 绑定在回环地址的 `web` 入口，而隧道是从主机内部访问它的，因此回环绑定并不限制谁能抵达。Cloudflare 负责终止 TLS，这正是 Web UI 所需的安全上下文；隧道会原样透传 `Host`，因为只要浏览器发送了 `Origin`，`/api` 策略就要求它与 `Host` 相等。该名称上的身份认证由 Cloudflare Access 承担，本仓库既不配置也不检查它：一旦缺少它，该名称对外提供的就是一个无认证的 Agent，任何人都能在容器内执行代码并读取已挂载的凭据。该覆盖文件还传入了 `--configuration-authority trusted-host`，因此位于其任一可信名称上的浏览器都能到达设置、凭据与 preset 管理，而 dsh 默认只把这些开放给回环浏览器；这一放宽的安全性完全取决于该名称前面的那道登录。
+`harness.ernestojpamajr.com` 面向互联网提供 Web UI。本机上的一条 Cloudflare 隧道把该名称转发到 Traefik 绑定在回环地址的 `web` 入口，而隧道是从主机内部访问它的，因此回环绑定并不限制谁能抵达。Cloudflare 负责终止 TLS，这正是 Web UI 所需的安全上下文；隧道会原样透传 `Host`，因为只要浏览器发送了 `Origin`，`/api` 策略就要求它与 `Host` 相等。该名称上的身份认证由 Cloudflare Access 承担，本仓库既不配置也不检查它：一旦缺少它，该名称对外提供的就是一个无认证的 Agent，任何人都能在容器内执行代码并读取已挂载的凭据。
 
-若要从别处访问该接口，就需要在面向远程的那个服务所运行的 Profile 上挂载 [`@deepseek-ai/dsh-api-key-auth`](packages/api/key-auth/README.md)——即 `api` 服务的 Profile，而非 Web UI 的——这样每个 `/api` 调用与每条事件 WebSocket 都必须出示 bearer 密钥，且任何带密钥的调用方都触达不到 settings 与 credentials 方法。Web UI 完全无法通过它完成认证，因为浏览器无法在 WebSocket 握手上设置 `Authorization` 头，因此挂载了闸门的 Profile 只服务程序化客户端。把该插件挂到错误的 Profile 上，或是把未挂载闸门的那个暴露出去，都会在无声中把配置平面重新开放给任何能访问该端口的人，而代码无法检测到这一点。
+每个 `/api` 调用与 `/api/remote.mux` WebSocket 都首先需要浏览器会话 cookie；该 cookie 由在浏览器所用的主机名上打开 `dsh web` 启动时打印的 `?token=` URL 签发。[`@deepseek-ai/dsh-api-key-auth`](packages/api/key-auth/README.zh.md) 的闸门只在该检查之后运行，因此只持有 bearer 密钥的程序会被以 `401` 拒绝；而 `api` Profile 不组合 web 应用、不打印令牌 URL，因此不放行任何调用方。
 
-挂载 Claude Code 与 Codex 的凭据目录后，[`dsh-llm-local-token`](https://github.com/tianxia--/dsh-llm-local-token) 即可将这些订阅作为模型路由提供。这些挂载为可读写：插件会在令牌临近过期时刷新，并写回宿主机 CLI 读取的同一个文件。[`patches/dsh-llm-local-token/`](patches/dsh-llm-local-token/README.md) 收录了该版本在 Linux 上所需的修复，`make docker-patch-plugins` 可在任何一次重新安装后重新应用它们。
+挂载 Claude Code 与 Codex 的凭据目录后，[`dsh-llm-local-token`](https://github.com/tianxia--/dsh-llm-local-token) 即可将这些订阅作为模型路由提供。这些挂载为可读写：插件会在令牌临近过期时刷新，并写回宿主机 CLI 读取的同一个文件。[`patches/dsh-llm-local-token/`](patches/dsh-llm-local-token/README.zh.md) 收录了该版本在 Linux 上所需的修复，`make docker-patch-plugins` 可在任何一次重新安装后重新应用它们。
 
 默认情况下，harness 直接访问公开的 DeepSeek API，各服务的 DeepSeek 密钥从 Web 的 Models 页面设置而非注入，因此该卡片保持可写。`make docker-all` 会在 Traefik 之后启动这一默认技术栈。将模型流量经网关转发是可选项。
 

@@ -6,7 +6,6 @@
     { "path": "../../../vendor/cosmokit" },
     { "path": "../../../vendor/cordis" },
     { "path": "../../../vendor/schemastery" },
-    { "path": "../../runtime-diagnostics/invariants" },
     { "path": "../../client/connection/tsconfig.host.json" },
     { "path": "../../credentials/credentials" }
   ]

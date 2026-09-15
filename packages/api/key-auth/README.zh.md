@@ -1,20 +1,31 @@
-# @deepseek-ai/dsh-api-key-auth
+---
+description: "/api 传输层的 API 密钥准入闸门：放行同时出示已配置 bearer 密钥的浏览器会话。"
+kind: "package-reference"
+---
+# API Key Auth
 
 [English](README.md) | 中文
 
-`/api` 传输层的 API 密钥准入门（admission gate）。它在 [`dsh-client-connection`](../../client/connection/README.md) 的 `ApiGateRegistry`（[gates](../../client/connection/src/gates.ts)）上注册一个门：放行携带已配置 bearer 密钥的调用方，拒绝其余所有调用方；它绝不会授予特权方法平面。
+## 概述
 
-当请求的 `Authorization` 头携带 `Bearer <secret>`，且 `<secret>` 与某个已配置密钥解析出的凭据匹配（以 `timingSafeEqual` 比较）时，该请求获得放行。匹配成功时该门返回 `{ allow: true, principal: <key name>, privileged: false }`;`privileged` 是无条件的、不可配置的,因此没有任何配置能让持密钥调用方获得特权。未携带 bearer 凭据的请求与携带无法识别凭据的请求,两者都应答 `401`。调用 `CONFIGURATION_METHODS` 或 `DESKTOP_METHODS` 中成员的请求(设置、凭据、预设管理、原生对话框——每组各自再过一道更窄的栅栏,桌面组为回环,配置面为 `configurationAuthority` 名单;参见 [gates.ts](../../client/connection/src/gates.ts) 与 `dsh-client-connection` 的 `index.ts`)需要同时满足聚合结果 `privileged: true` 与通过 loopback-same-origin 信任栅栏这两个条件;仅凭本门返回的 `privileged: false`,无论请求来自何处都会应答 `403`——这正是设计所在:否则一个终止于 loopback 的转发请求就会仅凭传输层通过信任栅栏。由组合决定——即哪个 profile 挂载了本插件,以及该 profile 是否同时放宽了信任栅栏——谁能够到达配置平面;没有任何基于单次请求的检测能区分一个被转发的请求和一个本地请求。
+`@deepseek-ai/dsh-api-key-auth` 在 [`dsh-client-connection`](../../client/connection/README.zh.md) 的闸门注册表（[`gates.ts`](../../client/connection/src/gates.ts)）上注册一个准入闸门。该闸门放行 `Authorization` 头携带 `Bearer <secret>` 且与某个已配置密钥解析出的凭据匹配的请求，其余请求一律以 `401` 拒绝。connection 只在其 Host/Origin 栅栏与浏览器会话 cookie 检查之后才运行闸门，因此被放行的请求必须同时具备浏览器会话与密钥。
 
-## 配置
+## 目录
 
-| 配置键 | 默认值 | 含义 |
-|---|---|---|
-| `keys[].name` | — | 一个已接受密钥的审计标签;在列表中唯一,绝不是密钥本身。放行时作为 principal 被记录;每次拒绝都会在该位置记录字面量 `none`。 |
-| `keys[].secret` | — | 解析出该密钥所用密钥值的凭据引用:一个裸 POSIX shell 标识符(例如 `DSH_KEY_CI`),格式与 [`dsh-credentials`](../../credentials/credentials/README.md) 在别处读取的格式相同,通过 `ctx.credentials` 由该组合所挂载的凭据 provider 解析。每个已配置密钥在每次请求中解析一次,因此轮换密钥无需重启。 |
-| `order` | `100` | 该门在所有已注册门([`ApiGateRegistry`](../../client/connection/src/gates.ts))中的运行顺序,为必须更早运行的门留出空间。多个门使用相同顺序是注册错误。 |
+- [使用本包](#use-this-package)
+- [配置](#configuration)
+- [模型体验](#model-experience)
+- [已知限制与延期工作](#known-limitations-and-deferred-work)
+- [开发备注](#dev-note)
 
-至少需要一个密钥;`keys` 列表为空是加载错误,`keys[].name` 重复也是加载错误。`keys[].secret` 引用格式不正确同样会以这种方式失败——在加载时,而不是在第一次请求时。
+-----
+
+<a id="use-this-package"></a>
+## 使用本包
+
+在同时挂载 `dsh-client-connection` 与凭据提供方的 Profile 中挂载本插件。密钥比较使用 `timingSafeEqual`。匹配成功时闸门返回 `{ allow: true, principal: <key name>, privileged: false }`；`privileged` 恒为 `false`，当前的 connection 中没有任何方法读取它。在 HTTP 路径上，未携带 bearer 凭据的请求与携带无法识别凭据的请求都应答 `401` 并附带 `www-authenticate: Bearer` 质询；被拒绝的 `/api/remote.mux` 升级应答闸门给出的状态码。
+
+connection 会在任何闸门运行之前拒绝没有有效浏览器会话 cookie 的请求，因此只持有密钥的程序收到的是 connection 的 `401`，而非本闸门的裁定。
 
 ```yaml
 - id: api-key-auth
@@ -27,20 +38,50 @@
         secret: DSH_KEY_CI
 ```
 
+-----
+
+<a id="configuration"></a>
+## 配置
+
+| 字段 | 默认值 | 含义 |
+|---|---|---|
+| `keys[].name` | — | 一个被接受密钥的审计标签；在列表内唯一，绝不是机密。放行时作为 principal 记录；每次拒绝在该位置记录 `none`。 |
+| `keys[].secret` | — | 解析为该密钥机密值的凭据引用，为裸 POSIX shell 标识符，例如 `DSH_KEY_CI`，每次请求都经 `ctx.credentials` 解析，因此轮换机密无需重启。 |
+| `order` | `100` | 本闸门在所有已注册闸门中的运行次序；闸门之间次序重复属于注册错误。 |
+
+空的 `keys` 列表、重复的 `keys[].name` 与格式错误的 `keys[].secret` 引用都是加载错误。生成的[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-api-key-auth)是可接受字段及其 JSDoc 的完整来源。
+
+-----
+
+<a id="model-experience"></a>
 ## 模型体验
 
-无,因为本包只放行或拒绝传输层请求,不为模型请求贡献任何内容。
+无，因为本包只放行或拒绝传输请求，不向模型请求贡献任何内容。
 
 #### KV Cache 影响
 
-无;本包既不组装也不发送 provider 请求。
+无；本包既不组装也不发送提供方请求。
 
-## 已知限制与暂缓事项
+## 已知限制与延期工作
 
-- **一个已配置的门控 profile 只能被程序化客户端访问** — 浏览器无法在 WebSocket 握手上设置 `Authorization` 头([`WebApiClient`](../../client/connection/src/client/web-api-client.ts) 用裸 `new WebSocket(url)` 打开两条下行链路),因此 Web UI 必须留在一个不设门控的 loopback profile 上。
-- **是身份认证,不是授权** — 每个被接受的密钥都能到达相同的 agent 方法、工作区和模型配额,因此密钥泄露即是一次完整的 agent 沦陷,只是到不了配置平面;按密钥划分作用域会扩展 `ApiGateDecision`,而不是取代它。
-- **每次请求对每个已配置密钥读取一次凭据** — 解析按请求进行,因此轮换密钥无需重启;密钥数量很多的部署需要不同的存储方式及其自身的失效机制。
-- **匹配位置可通过计时被观察到** — 每次密钥比较都是常数时间的,但循环在第一次匹配时就返回,因此耗时会泄露某个密钥在列表中的位置。该列表是部署配置,不是密钥本身。
-- **密钥长度未被隐藏** — 长度不相等时会在常数时间比较之前就给出应答,这是 `timingSafeEqual` 的要求。
-- **没有速率限制或锁定机制** — 该门会应答每一个请求;抵御暴力破解属于部署前置设施的职责。
-- **未通过认证的调用方仍会占用一整个请求缓冲区** — [`http-bridge.ts`](../../client/connection/src/http-bridge.ts) 会把整个请求体读入内存,上限为 `maxRequestBodyBytes`(默认 160 MiB),而这发生在运行门控的 Fetch 处理器存在之前,因此拒绝无法早于这次分配。该限制是既有的,也是该桥接方式固有的;但正是可远程访问的 profile 让未认证的调用方能够触达它。请调低该上限,或在部署前置设施中限制请求体大小。
+<a id="known-limitations-and-deferred-work"></a>
+
+- **只持密钥的客户端无法到达 `/api`** — connection 的浏览器会话检查先于所有闸门，因此本包无法放行没有浏览器 cookie 的程序。
+- **挂载闸门的 Profile 会拒绝 Web UI 的流** — 浏览器无法在 WebSocket 握手上设置 `Authorization`，因此把本闸门挂到浏览器 Profile 上会拒绝其 `/api/remote.mux` 升级。
+- **只做认证，不做授权** — 每个被接受的密钥都能触达相同的 agent 方法、工作区与模型配额。
+- **每次请求对每个已配置密钥读取一次凭据** — 密钥很多的部署需要另一种存储及其自身的失效机制。
+- **匹配位置可通过时序观测** — 每次比较是常量时间的，但循环在首次匹配时返回；密钥列表是部署配置，不是机密。
+- **不隐藏机密长度** — 长度不等时在常量时间比较之前即作答，这是 `timingSafeEqual` 的要求。
+- **没有限流或锁定** — 抵御暴力破解属于部署前端的职责。
+
+<a id="dev-note"></a>
+### 开发备注
+
+<details>
+<summary>维护者工作上下文——点击展开</summary>
+
+本闸门是为一个放行无 cookie 的回环与受信主机请求的 connection 设计的；[准入闸门 Agent Note](../../../.agents/notes/implemented/architecture/2026-08-26-api-request-gates-and-key-authentication.zh.md) 记录了该设计。
+
+</details>
+
+**运行时不变式：** 不发布伴生入口。本包不拥有事件流或可变运行时数据；其校验后的密钥列表与闸门注册只存在于一次 `apply` 调用的闭包中。

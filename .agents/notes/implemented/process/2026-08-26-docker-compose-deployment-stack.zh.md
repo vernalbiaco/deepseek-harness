@@ -14,7 +14,7 @@ Status: implemented
 
 ## Decision
 
-一套 Compose 编排从源码检出构建 CLI 与 Web UI，并运行三个 `dsh` 服务——`web`、单次任务的 `headless` 与 `api`——共用一个 `dsh-home` 卷，由该卷在镜像重新构建后持有 Profile 状态。`make` 目标承载常规操作，[README](../../../../README.md) 在 `Run` 一节记录该编排。
+一套 Compose 编排从源码检出构建 CLI 与 Web UI，并运行三个 `dsh` 服务——`web`、单次任务的 `headless` 与 `api`——共用一个 `dsh-home` 卷，由该卷在镜像重新构建后持有 Profile 状态。`make` 目标承载常规操作，[README](../../../../README.zh.md) 在 `Run` 一节记录该编排。
 
 所有发布端口均绑定宿主机回环地址。由于 `dsh` 服务器绑定容器回环地址，每个对外暴露的服务都配一个 `socat` 边车，通过 `network_mode: "service:<name>"` 加入该服务的网络命名空间，并把发布端口向内转发。边车无法重新加入被其服务替换掉的命名空间，因此重启 `dsh` 服务时必须重建其边车而非重启它；`make docker-patch-plugins` 固化了这一顺序。
 
@@ -52,7 +52,7 @@ Status: implemented
 
 ### 第三方插件补丁
 
-[`patches/dsh-llm-local-token/`](../../../../patches/dsh-llm-local-token/README.md) 收录某第三方插件在锁定版本上的已打补丁模块，仅由 `make docker-patch-plugins` 应用。它们不是 pnpm 的 `patchedDependencies`：该插件在运行时被安装进 `dsh-home` 卷内的某个 Profile，任何安装期机制都触及不到那里。
+[`patches/dsh-llm-local-token/`](../../../../patches/dsh-llm-local-token/README.zh.md) 收录某第三方插件在锁定版本上的已打补丁模块，仅由 `make docker-patch-plugins` 应用。它们不是 pnpm 的 `patchedDependencies`：该插件在运行时被安装进 `dsh-home` 卷内的某个 Profile，任何安装期机制都触及不到那里。
 
 两处修复都关乎凭据归属。上游仅从 macOS Keychain 读取当前的 Claude 凭据结构，因此在 Linux 上该路由会以「不存在」的状态注册且毫无报错；而它的 Codex 写回保留文件权限位却不保留属主，因此一次以 root 身份执行的刷新会留下宿主机 CLI 再也无法读取的 root 属主凭据。每处重写都保留文件的属主与权限位，并保持同级字段不变，因为宿主机 CLI 与容器共用同一个文件。Claude 的修复存储真实过期时间而非过期时间减去偏移量，因为官方 CLI 读取的正是同一字段。
 
@@ -106,6 +106,6 @@ Status: implemented
 
 模型流量有了第二个去向，而会话日志无从区分二者：经网关服务的请求与其他请求别无二致。该网关持有已签发的密钥并终结全部请求，其镜像却跟随 `:latest` 浮动，因此处在这个位置上的组件会在无人评审的情况下更新。它的仪表盘绑定回环地址，且在首次登录前不设认证，而 `OMNIROUTE_INITIAL_PASSWORD` 就放在工作区为本检出时 Agent 能以文件形式从 `/workspace/.env` 读到的那份 `.env` 里，该网关又位于已接入服务所加入的网络上。
 
-该公开主机名唯一的身份认证是 Cloudflare Access，它配置在本仓库之外。compose 文件、信任策略与网关都不会检查它是否存在，因此这套部署的安全性依赖于一个它自身所有门禁都看不见的控制。该覆盖文件对它的依赖更进一步：`--configuration-authority trusted-host` 让每个可信名称——公开名称与 RavenStack 及 localhost 名称一样，因为该栅栏按部署而非按主机名生效——都能到达设置、凭据与 preset 管理，而默认栅栏让这些仅限回环（[决策](../architecture/2026-07-28-api-browser-trust-boundary.md)）。前面没有 Access 时，这就是一个暴露在互联网上的无认证配置面；有它时，公开名称上的浏览器可以持久化设置，而 Host 的原生文档与对话框方法仍会被拒绝。
+该公开主机名的外层身份认证是 Cloudflare Access，它配置在本仓库之外。compose 文件、信任策略与网关都不会检查它是否存在。在它之后，每个 `/api` 调用都需要浏览器会话 cookie，该 cookie 由 `dsh web` 启动时打印的 `?token=` URL 签发，因此任何能读取 `docker compose logs web` 的人都能开启会话。公开名称与 RavenStack 名称上的设置只保存在该浏览器的内存中，因为客户端只在回环页面上经由 Host 持久化设置（[栅栏](../architecture/2026-07-28-api-browser-trust-boundary.zh.md)）。
 
 GitHub 令牌进一步扩大了这一暴露面：任何通过公开名称触达代理的人，都能以该令牌的账户身份向令牌可写的每个仓库推送。

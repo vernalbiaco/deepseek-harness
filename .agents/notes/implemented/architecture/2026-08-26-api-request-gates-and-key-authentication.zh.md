@@ -6,7 +6,7 @@ Status: implemented
 
 ## 问题
 
-`/api` 接口不带任何身份认证，拥有它的那几个包自己就是这么写的。[`api-request-trust.ts`](../../../../packages/client/connection/src/api-request-trust.ts) 自述为一道 DNS 重绑定防线，并且「不是认证层」；[`connection`](../../../../packages/client/connection/src/index.ts) 将整个配置平面钉死在回环地址上，「直到存在真正的认证层为止」；[webserver README](../../../../packages/host/webserver/README.md) 则把 TLS 与认证列为范围之外。因此，从另一台机器访问该 agent，就意味着暴露一个不带认证的接口，而它能在工作区内执行代码并消耗该账号的模型配额。
+`/api` 接口不带任何身份认证，拥有它的那几个包自己就是这么写的。[`api-request-trust.ts`](../../../../packages/client/connection/src/api-request-trust.ts) 自述为一道 DNS 重绑定防线，并且「不是认证层」；[`connection`](../../../../packages/client/connection/src/index.ts) 将整个配置平面钉死在回环地址上，「直到存在真正的认证层为止」；[webserver README](../../../../packages/host/webserver/README.zh.md) 则把 TLS 与认证列为范围之外。因此，从另一台机器访问该 agent，就意味着暴露一个不带认证的接口，而它能在工作区内执行代码并消耗该账号的模型配额。
 
 没有任何扩展点能弥合这一点。webserver 只派发一条匹配到的路由，没有中间件、没有 `next()`，重复注册还会抛错，因此插件只能遮蔽 `/api` 并让真正的处理器变得不可达。`/api` 通道上唯一的拦截器席位在所有已发布组合中都被 Typert 网关占据，而且拦截器运行于 RPC 派发内部，`events.mux` 与 `events.host` 这两个 WebSocket 升级请求根本不会进入其中。深度导入 `connection` 的内部实现来包装它，只在本工作区内可行，因为该包发布的是 `lib/` 而非 `src/`。
 
@@ -53,7 +53,7 @@ connection 不承载任何策略。它只机械地执行两条规则：拒绝即
 
 ### 闸门在何处被调用
 
-`/api` 的 HTTP 请求在 `createSharedFetchHandler`（[`rpc-host.ts`](../../../../packages/client/connection/src/rpc-host.ts)）内部、**先于拦截器选择**接受闸门审查，因此无论哪个目标认领该请求，通道上的每个请求都恰好被授权一次。若置于拦截器选择之后，拦截器的那些端点就会成为传输层上一个不带认证的席位：[`packages/api/gateway`](../../../../packages/api/gateway/README.md) 经由 [`packages/bundle/base/cordis.patch.yml`](../../../../packages/bundle/base/cordis.patch.yml) 在所有默认 Profile 中占据 `/api` 唯一的拦截器席位，于是被认领的端点将为匿名调用方派发。connection 的兜底处理器拿到的是放行裁决以及交给闸门的同一个 `method` 字符串，因此它的特权方法判定不可能读到与被授权者不同的方法。
+`/api` 的 HTTP 请求在 `createSharedFetchHandler`（[`rpc-host.ts`](../../../../packages/client/connection/src/rpc-host.ts)）内部、**先于拦截器选择**接受闸门审查，因此无论哪个目标认领该请求，通道上的每个请求都恰好被授权一次。若置于拦截器选择之后，拦截器的那些端点就会成为传输层上一个不带认证的席位：[`packages/api/gateway`](../../../../packages/api/gateway/README.zh.md) 经由 [`packages/bundle/base/cordis.patch.yml`](../../../../packages/bundle/base/cordis.patch.yml) 在所有默认 Profile 中占据 `/api` 唯一的拦截器席位，于是被认领的端点将为匿名调用方派发。connection 的兜底处理器拿到的是放行裁决以及交给闸门的同一个 `method` 字符串，因此它的特权方法判定不可能读到与被授权者不同的方法。
 
 两个 WebSocket 升级处理器（[`index.ts`](../../../../packages/client/connection/src/index.ts)）都在信任防线之后调用 `authorizeApiRequest`，未获放行的裁决会以 `rejectWebSocketUpgrade` 写出的那个固定 `403 Forbidden` 响应拒绝该升级，因此以 `401` 拒绝的闸门在升级请求上仍表现为 `403`。
 
@@ -76,7 +76,7 @@ connection 不承载任何策略。它只机械地执行两条规则：拒绝即
         secret: DSH_KEY_CI
 ```
 
-`name` 是审计标签，必须唯一。`secret` 是一个[凭据引用](../../../../packages/credentials/credentials/README.md)。空的 `keys` 列表、重复的 `name` 以及格式错误的引用，都在加载期失败而非在首个请求时失败；解析不到任何值的引用会被跳过，而不是与一个缺失的密文相匹配，因此密文只与某个解析不到值的引用相对应的调用方，最终收到的是普通的 `401 unrecognized credential`。
+`name` 是审计标签，必须唯一。`secret` 是一个[凭据引用](../../../../packages/credentials/credentials/README.zh.md)。空的 `keys` 列表、重复的 `name` 以及格式错误的引用，都在加载期失败而非在首个请求时失败；解析不到任何值的引用会被跳过，而不是与一个缺失的密文相匹配，因此密文只与某个解析不到值的引用相对应的调用方，最终收到的是普通的 `401 unrecognized credential`。
 
 ### 部署
 
