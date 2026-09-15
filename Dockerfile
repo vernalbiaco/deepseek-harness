@@ -37,8 +37,11 @@ FROM node:22-bookworm-slim AS runtime
 # and credential helper that drive it over HTTPS. Installing it here rather
 # than inside a running container keeps it across `docker compose up`, which
 # recreates the container from this image. ca-certificates lets git verify
-# github.com.
+# github.com. The upgrade applies the Debian security updates published since
+# upstream last rebuilt the base tag; a cached layer keeps the packages of the
+# build that created it, so release builds pass --no-cache.
 RUN apt-get update \
+    && DEBIAN_FRONTEND=noninteractive apt-get upgrade -y --no-install-recommends \
     && apt-get install -y --no-install-recommends git ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
