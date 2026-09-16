@@ -107,9 +107,11 @@ plugin_dir() {
   echo "/root/.dsh/profiles/$1/node_modules/dsh-llm-local-token"
 }
 
-# Whether the installed index.js declares the field the model catalog needs.
+# Whether `profileOf` in the installed index.js declares the field the model
+# catalog needs. Scoped to that function: the field is required on the profile
+# it builds, so a `modelErrors` written anywhere else says nothing about it.
 model_errors_state() {
-  if docker exec "$1" grep -q "^ *modelErrors:" "$(plugin_dir "$2")/lib/index.js" 2>/dev/null; then
+  if docker exec "$1" sh -c "awk '/^function profileOf/,/^}/' '$(plugin_dir "$2")/lib/index.js' | grep -q '^ *modelErrors:'" 2>/dev/null; then
     echo "modelErrors declared"
   else
     echo "modelErrors MISSING, so the model picker reports this plugin's routes as failed"
@@ -124,17 +126,24 @@ add_model_errors() {
 const fs = require("fs")
 const [file, anchor, field] = process.argv.slice(1)
 const lines = fs.readFileSync(file, "utf8").split("\n")
-if (lines.some(line => /^\s*modelErrors:/.test(line))) {
+const open = lines.findIndex(line => /^function profileOf\b/.test(line))
+const close = open === -1 ? -1 : lines.findIndex((line, index) => index > open && line === "}")
+if (close === -1) {
+  console.error("no profileOf function to read")
+  process.exit(1)
+}
+const body = lines.slice(open, close + 1)
+if (body.some(line => /^\s*modelErrors:/.test(line))) {
   console.log("already present")
   process.exit(0)
 }
-const at = lines.flatMap((line, index) => line === anchor ? [index] : [])
+const at = body.flatMap((line, index) => line === anchor ? [index] : [])
 if (at.length !== 1) {
-  console.error(`profileOf anchor appears ${at.length} times, expected 1`)
+  console.error(`profileOf writes the anchor ${at.length} times, expected 1`)
   process.exit(1)
 }
 if (!fs.existsSync(`${file}.orig`)) fs.copyFileSync(file, `${file}.orig`)
-lines.splice(at[0], 0, field)
+lines.splice(open + at[0], 0, field)
 fs.writeFileSync(file, lines.join("\n"))
 console.log("added")
 ' "$3" "$anchor" "$field")" || die "$1 runs an index.js this edit does not know; reread profileOf before patching"
