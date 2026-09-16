@@ -5,12 +5,18 @@
 # them, then restarts its `<service>-proxy` sidecar: the sidecar shares the
 # service's network namespace, which the restart replaced, and rejoins it only
 # when it starts again. `check` reports the routes each service's plugin
-# registers.
+# registers, and whether the profile field the model catalog needs is in place:
+# the routes alone stay healthy while the picker is broken.
 #
 # `apply` first compares every installed module against the upstream hash it
 # was patched against, and copies nothing anywhere unless all of them match: a
 # patched copy built on a different base would silently drop the installed
 # release's own changes to that module.
+#
+# `index.js` is patched by an in-place edit rather than a copy. It is the one
+# patched module that differs between releases, so a full copy would pin the
+# patch to a single version and drop every other release's own changes; the
+# edit adds one missing field and is a no-op once a release declares it.
 #
 # Both act on running containers found by their Compose labels, never on a
 # Compose file set. A file set resolved from the invoking checkout can differ
@@ -27,6 +33,18 @@ services="${PATCHED_SERVICES:-web api}"
 repo="$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)"
 patches="$repo/patches/dsh-llm-local-token"
 modules="claude-keychain.js token-store.js"
+# `profileOf` in the plugin's index.js builds the pi-ai provider profile the
+# adapter reads. ResolvedPiAiProviderProfile in packages/llm/llm-pi-ai
+# requires `modelErrors`; releases through 1.5.1 omit it, so modelOf throws
+# "Cannot read properties of undefined (reading 'get')" once per route the
+# plugin serves and the model picker lists those routes as failed groups.
+# Nothing else notices: the usage route reads no profile, so the quota badge
+# and `check` below stay healthy while the picker is broken.
+#
+# Anchored on the adjacent required field, which every release patched so far
+# writes exactly once, so one edit serves 1.3.2 and 1.5.1 alike.
+anchor="    configuredMaxTokens: new Map(),"
+field="    modelErrors: new Map(),"
 # The image's entrypoint, which identifies a dsh container whatever its tag.
 dsh_entrypoint="/app/apps/cli/lib/bin.js"
 # Seconds `check` waits for a restarted service's route; 0 checks once.
@@ -84,6 +102,46 @@ published_hash() {
   docker exec "$1" sh -c "sha256sum '$2.orig' 2>/dev/null || sha256sum '$2'" 2>/dev/null | cut -d' ' -f1
 }
 
+# The plugin directory inside one service's profile.
+plugin_dir() {
+  echo "/root/.dsh/profiles/$1/node_modules/dsh-llm-local-token"
+}
+
+# Whether the installed index.js declares the field the model catalog needs.
+model_errors_state() {
+  if docker exec "$1" grep -q "^ *modelErrors:" "$(plugin_dir "$2")/lib/index.js" 2>/dev/null; then
+    echo "modelErrors declared"
+  else
+    echo "modelErrors MISSING, so the model picker reports this plugin's routes as failed"
+  fi
+}
+
+# Add the missing `modelErrors` to `profileOf`, once. Args: service, container,
+# file. Reports what it did, and dies rather than guessing when the release
+# does not write the anchor exactly once.
+add_model_errors() {
+  did="$(docker exec "$2" node -e '
+const fs = require("fs")
+const [file, anchor, field] = process.argv.slice(1)
+const lines = fs.readFileSync(file, "utf8").split("\n")
+if (lines.some(line => /^\s*modelErrors:/.test(line))) {
+  console.log("already present")
+  process.exit(0)
+}
+const at = lines.flatMap((line, index) => line === anchor ? [index] : [])
+if (at.length !== 1) {
+  console.error(`profileOf anchor appears ${at.length} times, expected 1`)
+  process.exit(1)
+}
+if (!fs.existsSync(`${file}.orig`)) fs.copyFileSync(file, `${file}.orig`)
+lines.splice(at[0], 0, field)
+fs.writeFileSync(file, lines.join("\n"))
+console.log("added")
+' "$3" "$anchor" "$field")" || die "$1 runs an index.js this edit does not know; reread profileOf before patching"
+  docker exec "$2" node --check "$3" >/dev/null 2>&1 || die "$1: the patched index.js does not parse"
+  echo "$1: profileOf modelErrors $did"
+}
+
 apply() {
   for svc in $services; do
     id="$(container "$svc")"
@@ -91,7 +149,7 @@ apply() {
       echo "skip $svc: not running in project $project"
       continue
     fi
-    pkg="/root/.dsh/profiles/$svc/node_modules/dsh-llm-local-token"
+    pkg="$(plugin_dir "$svc")"
     lib="$pkg/lib"
     if ! docker exec "$id" test -d "$lib"; then
       echo "skip $svc: dsh-llm-local-token is not installed in profile $svc"
@@ -113,6 +171,7 @@ apply() {
       docker exec "$id" sh -c "test -f '$lib/$f.orig' || cp '$lib/$f' '$lib/$f.orig'"
       docker cp "$patches/$f" "$id:$lib/$f" >/dev/null
     done
+    add_model_errors "$svc" "$id" "$lib/index.js"
     echo "patched $svc"
     docker restart "$id" >/dev/null
     echo "restarted $svc"
@@ -147,7 +206,7 @@ check() {
     if [ -z "$found" ]; then
       echo "$svc: usage route unavailable (plugin not loaded?)"
     else
-      echo "$svc: $found"
+      echo "$svc: $found; $(model_errors_state "$id" "$svc")"
     fi
   done
 }
