@@ -426,6 +426,14 @@ export interface ConnectionConfig {
    * bind. An entry that is not a bare, canonical authority fails plugin load.
    */
   trustedHosts?: string[]
+  /**
+   * Which pages may persist Host configuration, injected into each served
+   * page. `trusted-host` extends it from loopback pages to pages under a
+   * `trustedHosts` authority and requires at least one; the `/api` routes
+   * admit those authorities either way, so this selects Client behavior and
+   * grants no server access. Default: `loopback`.
+   */
+  configurationAuthority?: ConfigurationAuthority
   /** Absolute browser-session lifetime in days. Default: 30. */
   cookieMaxAgeDays?: number
   /** Maximum buffered JSON body for every `/api` request. Default: 300 MiB. */
@@ -448,9 +456,18 @@ export interface ConnectionRecoveryConfig {
   /** Deadline in ms for readiness, including physical connection setup. Default: 15000. */
   generationReadyTimeoutMs?: number
 }
+
+/**
+ * Which pages may read and write Host configuration (the `settings` and
+ * `credentials` Remote namespaces) instead of keeping edits in page memory.
+ * `loopback` admits only a loopback page; `trusted-host` also admits a page
+ * served under a `trustedHosts` authority. Actions on the Host's own desktop,
+ * such as opening the settings document, stay loopback-only under both.
+ */
+export type ConfigurationAuthority = 'loopback' | 'trusted-host'
 ```
 
-来源：[`packages/client/connection/src/index.ts:79`](../packages/client/connection/src/index.ts)
+来源：[`packages/client/connection/src/index.ts:81`](../packages/client/connection/src/index.ts)
 
 <a id="deepseek-aidsh-client-hmr"></a>
 

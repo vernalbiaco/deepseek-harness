@@ -9,6 +9,7 @@ import { API_PATH } from './api-path.ts'
 import { bridge, DEFAULT_MAX_REQUEST_BODY_BYTES } from './http-bridge.ts'
 import { assertTrustedAuthority } from './api-request-trust.ts'
 import { BrowserAuth } from './browser-auth.ts'
+import { ConfigurationAuthoritySchema, resolveConfigurationAuthority, type ConfigurationAuthority } from './configuration-authority.ts'
 import { headersOf } from './gates.ts'
 import { HostConnectionService } from './rpc-host.ts'
 import { ConnectionRecoveryConfigSchema, resolveConnectionConfig, type ConnectionRecoveryConfig } from './recovery-config.ts'
@@ -51,6 +52,7 @@ export type {
 } from './gates.ts'
 
 export { API_PATH } from './api-path.ts'
+export type { ConfigurationAuthority } from './configuration-authority.ts'
 
 /** Stable Cordis plugin name. */
 export const name = 'client-connection'
@@ -88,6 +90,14 @@ export interface ConnectionConfig {
    * bind. An entry that is not a bare, canonical authority fails plugin load.
    */
   trustedHosts?: string[]
+  /**
+   * Which pages may persist Host configuration, injected into each served
+   * page. `trusted-host` extends it from loopback pages to pages under a
+   * `trustedHosts` authority and requires at least one; the `/api` routes
+   * admit those authorities either way, so this selects Client behavior and
+   * grants no server access. Default: `loopback`.
+   */
+  configurationAuthority?: ConfigurationAuthority
   /** Absolute browser-session lifetime in days. Default: 30. */
   cookieMaxAgeDays?: number
   /** Maximum buffered JSON body for every `/api` request. Default: 300 MiB. */
@@ -97,6 +107,7 @@ export interface ConnectionConfig {
 export const Config: z<ConnectionConfig> = z.object({
   recovery: ConnectionRecoveryConfigSchema.default({}),
   trustedHosts: z.array(String).default([]),
+  configurationAuthority: ConfigurationAuthoritySchema,
   cookieMaxAgeDays: z.natural().min(1).default(30),
   maxRequestBodyBytes: z.natural().min(1).default(DEFAULT_MAX_REQUEST_BODY_BYTES),
 })
@@ -119,6 +130,10 @@ export async function apply(ctx: Context, config?: ConnectionConfig): Promise<vo
   // Config boundary: a malformed entry fails the load loudly here rather than
   // silently authorizing its hostname prefix at request time.
   for (const entry of trustedHosts) assertTrustedAuthority(entry)
+  const configurationAuthority = resolveConfigurationAuthority(config?.configurationAuthority)
+  if (configurationAuthority === 'trusted-host' && trustedHosts.length === 0) {
+    throw new Error('client-connection configurationAuthority "trusted-host" requires at least one trustedHosts authority')
+  }
   assertImageBodyCapacity(ctx, maxRequestBodyBytes)
   const connection = new HostConnectionService(
     ctx,
@@ -129,6 +144,7 @@ export async function apply(ctx: Context, config?: ConnectionConfig): Promise<vo
     assertImageBodyCapacity(webCtx, maxRequestBodyBytes)
     webCtx.on('webserver/index-inject', (table) => {
       table.push({ kind: 'global', name: '__DSH_CONNECTION_RECOVERY__', value: recovery })
+      table.push({ kind: 'global', name: '__DSH_CONFIGURATION_AUTHORITY__', value: configurationAuthority })
     })
     const fetchHandler = connection.createSharedFetchHandler(API_PATH)
     const route: WebRoute = {

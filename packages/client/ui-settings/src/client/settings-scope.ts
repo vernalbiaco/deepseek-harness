@@ -57,7 +57,7 @@ export class SettingsScopeController<T> implements SettingsScope<T> {
    * namespace carries this scope's writes (reads ride the mirror).
    * @param spec - namespace identity and optional narrowing decoder.
    * @param mirror - the shared describe mirror this scope derives from.
-   * @param persistence - client-selected Host persistence; non-loopback pages may remain process-local.
+   * @param persistence - client-selected Host persistence; a page that is not `configurable` stays process-local.
    * @param schema - settings-owned schema operations.
    */
   constructor(

@@ -94,7 +94,7 @@ None; this package neither assembles nor sends a provider request.
 
 These limits define where the settings transport cannot reach; they are current package constraints.
 
-- **Non-loopback pages get no durable settings** — this Client keeps Host persistence disabled there, so a scope starts `unavailable` and never crosses the wire; every row it backs is inert even though Connection authentication covers the API.
+- **Pages that are not `configurable` get no durable settings** — a non-loopback page is one unless the Host runs with `configurationAuthority: trusted-host` and serves it under a trusted authority; this Client keeps Host persistence disabled there, so a scope starts `unavailable` and never crosses the wire, and every row it backs is inert even though Connection authentication covers the API.
 
 <a id="dev-note"></a>
 ### Dev Note

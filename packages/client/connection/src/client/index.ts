@@ -12,6 +12,7 @@ import { createWebConnectionRpc, type RpcFetch, type RpcStreamOpen } from './rpc
 import { isLoopbackHostname } from '../loopback-hostname.ts'
 import type { ClientConnectionRpc } from '../rpc.ts'
 import { resolveConnectionConfig } from '../recovery-config.ts'
+import { resolveConfigurationAuthority, type ConfigurationAuthority } from '../configuration-authority.ts'
 
 declare module '@deepseek-ai/cordis' {
   interface Events {
@@ -108,6 +109,7 @@ export interface ClientTransportHooks {
 interface ClientTransportGlobal {
   __DSH_TRANSPORT__?: ClientTransportHooks
   __DSH_CONNECTION_RECOVERY__?: unknown
+  __DSH_CONFIGURATION_AUTHORITY__?: unknown
 }
 
 /** Browser location fields used to classify loopback authority. */
@@ -123,6 +125,8 @@ export interface ConnectionInstallOptions {
   readonly recovery?: ConnectionRecoveryConfig
   /** Page location; omit for a non-browser composition. */
   readonly location?: ConnectionLocation
+  /** Which pages may persist Host configuration. Default: `loopback`. */
+  readonly configurationAuthority?: ConfigurationAuthority
 }
 
 /**
@@ -136,6 +140,14 @@ export interface ConnectionHandle {
    * ({@link ClientTransportHooks.ownsHost}), or the context is not a browser.
    */
   readonly isLoopback: boolean
+  /**
+   * Whether this page may read and write Host configuration: the page is
+   * loopback in the {@link isLoopback} sense, or the Host selected the
+   * `trusted-host` configuration authority. A non-loopback page reaches
+   * `/api` only under a `trustedHosts` authority, so a page this Host served
+   * with that authority is a trusted one. Fixed for the page lifetime.
+   */
+  readonly configurable: boolean
   /** Current Remote event generation and the Host facts carried by its opening frame. */
   readonly generation: ConnectionGenerationState
   /** Current recovery lifecycle for connection-specific consumers. */
@@ -204,6 +216,7 @@ export function installConnection(ctx: Context, options: ConnectionInstallOption
   const pageLocation = options.location
   const transport = options.transport
   const recovery = options.recovery ?? {}
+  const isLoopback = transport?.ownsHost === true || pageLocation === undefined || isLoopbackHostname(pageLocation.hostname)
   const rpc = transport?.rpc ?? createWebConnectionRpc(transport?.fetch, transport?.openStream)
   let generationSource: ConnectionGenerationSource | undefined
   let owner: ConnectionOwner | undefined
@@ -243,7 +256,8 @@ export function installConnection(ctx: Context, options: ConnectionInstallOption
     publishState(undefined)
   }
   const handle: ConnectionHandle = {
-    isLoopback: transport?.ownsHost === true || pageLocation === undefined || isLoopbackHostname(pageLocation.hostname),
+    isLoopback,
+    configurable: isLoopback || options.configurationAuthority === 'trusted-host',
     generation: {
       getSnapshot: () => generation,
       subscribe: (listener) => {
@@ -319,6 +333,7 @@ export function apply(ctx: Context): void {
   installConnection(ctx, {
     ...(transport === undefined ? {} : { transport }),
     recovery: resolveConnectionConfig(globals.__DSH_CONNECTION_RECOVERY__),
+    configurationAuthority: resolveConfigurationAuthority(globals.__DSH_CONFIGURATION_AUTHORITY__),
     ...(pageLocation === undefined ? {} : { location: pageLocation }),
   })
 }
