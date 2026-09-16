@@ -21,6 +21,9 @@
 # Authentication for that name is Cloudflare Access, outside this repository:
 # nothing here enforces it, and the name serves an unauthenticated agent that
 # can run code in the container the moment Access is removed or misconfigured.
+# `--configuration-authority trusted-host` relies on the same login: a page on
+# any trusted name saves Settings and credentials to the Host, which a
+# loopback page alone does by default, so the public name keeps its settings.
 #
 # The proxy sidecars share their service's network namespace
 # (`network_mode: "service:web"`), so the port Traefik targets is the socat
@@ -48,7 +51,7 @@ services:
     # `harness.local.raven.com` the client's readiness handshake fails, and
     # the session list stays empty while the connection retries forever.
     # Serving that name over HTTPS would also earn a secure context.
-    command: ["web", "--no-open", "--trusted-host", "harness.local.raven.com", "--trusted-host", "harness.localhost", "--trusted-host", "harness.ernestojpamajr.com"]
+    command: ["web", "--no-open", "--trusted-host", "harness.local.raven.com", "--trusted-host", "harness.localhost", "--trusted-host", "harness.ernestojpamajr.com", "--configuration-authority", "trusted-host"]
     networks:
       - default
       - hybrid_public
