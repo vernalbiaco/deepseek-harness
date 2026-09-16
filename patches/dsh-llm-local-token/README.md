@@ -32,7 +32,7 @@ The third fix is not a file here: it is one line `docker/plugin-patches.sh` inse
 ## Applying
 
 ```sh
-make docker-patch-plugins     # copy into every running profile, then restart
+make docker-patch-plugins     # patch every running profile, then restart
 ```
 
 The target finds the running `web` and `api` containers by their Compose labels, copies both modules into each profile's `dsh-llm-local-token` installation, restarts the container so the running process loads them, and restarts its `-proxy` sidecar so the sidecar rejoins the restarted network namespace. It reads no Compose file set, so it recreates and rebuilds nothing and works from any checkout or worktree; when more than one Compose project runs the dsh image, `DSH_STACK_PROJECT` names the one to patch. A service whose profile does not have the plugin installed is reported and skipped.

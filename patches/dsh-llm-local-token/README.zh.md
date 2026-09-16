@@ -32,7 +32,7 @@
 ## 应用方式
 
 ```sh
-make docker-patch-plugins     # copy into every running profile, then restart
+make docker-patch-plugins     # patch every running profile, then restart
 ```
 
 该目标按 Compose 标签找到正在运行的 `web` 与 `api` 容器，把两个模块复制进各自 Profile 的 `dsh-llm-local-token` 安装目录，重启容器以便运行中的进程加载它们，并重启其 `-proxy` 边车，使边车重新加入被重启替换的网络命名空间。它不读取任何 Compose 文件集合，因此不会重建或重新构建任何内容，可从任意检出或 worktree 运行；当有多个 Compose 项目运行 dsh 镜像时，用 `DSH_STACK_PROJECT` 指定要打补丁的项目。若某个服务对应的 Profile 未安装该插件，则会被报告并跳过。
