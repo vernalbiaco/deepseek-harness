@@ -39,6 +39,8 @@ cookie 签名密钥是 `ctx.credentials` 中由 `client-connection/browser-sessi
 
 认证之前，每个请求仍经过 `src/api-request-trust.ts`。其 `Host` 必须是 loopback，或与 `trustedHosts` 条目匹配：带端口的 `host:port` 精确匹配，不带端口的条目匹配任意端口，两侧均经 WHATWG 归一化。若附带 `Origin`，它必须等于该 Host；`sec-fetch-site: cross-site` 一律拒绝。畸形配置 authority 会让插件加载失败。这些检查防御 DNS rebinding 与跨站浏览器请求，绝不建立身份。Host/Origin 校验失败返回 403；Host 可信但未认证的请求返回 401。`dsh web --host 0.0.0.0` 仍不受支持。决策记录：[浏览器请求信任](../../../.agents/notes/implemented/architecture/2026-07-28-api-browser-trust-boundary.zh.md)与[浏览器令牌认证](../../../.agents/notes/implemented/architecture/2026-08-24-browser-token-authentication.zh.md)。
 
+`configurationAuthority` 决定哪些页面通过 Host 持久化 Settings 与凭据；无论取值如何，服务端都会对通过上述检查的任意 authority 放行 `settings` 与 `credentials` Remote 命名空间。默认值 `loopback` 只让 loopback 页面获得 `ctx.connection.configurable`，其他页面的编辑都只留在页面内存中。`trusted-host` 将其扩展到 `trustedHosts` authority 下的页面，且该列表为空时插件加载失败。Host 会把该值注入每个下发的页面，Client 在提供 Connection 之前校验它。它从不放宽 `isLoopback`，后者仍把关作用于 Host 本机桌面的操作，例如打开设置文档。在 `trusted-host` 下，任何在受信任 authority 上持有浏览器会话的人都能修改 Settings 并替换已存储的凭据，因此该模式依赖这些 authority 前面的登录层。
+
 <a id="admission-gates"></a>
 ## 准入 gate
 

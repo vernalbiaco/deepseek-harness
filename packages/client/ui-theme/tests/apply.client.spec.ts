@@ -51,7 +51,8 @@ async function bench(isLoopback = true) {
     return Promise.resolve({ ok: true as const, value: namespace() })
   })
   const events = new TestRemote(ctx, { settings: { describe, mutate } })
-  events.$host = { home: undefined, isLoopback }
+  // A loopback page, or a non-loopback page the Host did not make configurable.
+  events.$host = { home: undefined, isLoopback, configurable: isLoopback }
   await ctx.plugin({ inject: [...settingsInject], apply: settingsApply }).await()
   return {
     ctx, slots: ctx.get('slots') as SlotRegistry, locale, describe, mutate, events,

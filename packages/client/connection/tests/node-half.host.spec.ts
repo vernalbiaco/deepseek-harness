@@ -137,7 +137,7 @@ describe('connection node half', () => {
           backoffBaseMs: 500, backoffFactor: 2, backoffMaxMs: 10_000,
           generationReadyWarnMs: 3_000, generationReadyTimeoutMs: 25_000,
         },
-      }])
+      }, { kind: 'global', name: '__DSH_CONFIGURATION_AUTHORITY__', value: 'loopback' }])
       await dispose()
       const after: IndexInjection[] = []
       ctx.emit('webserver/index-inject', after)
@@ -170,6 +170,31 @@ describe('connection node half', () => {
     } as AttachmentStore)
     await expect(apply(ctx, { maxRequestBodyBytes: 1024 }))
       .rejects.toThrow(/must be at least .* aggregate image limit/)
+    expect(routes).toHaveLength(0)
+  })
+
+  it('injects the trusted-host configuration authority for a deployment that names trusted hosts', async () => {
+    const { ctx, dispose } = await mounted({ trustedHosts: ['harness.internal'], configurationAuthority: 'trusted-host' })
+    try {
+      const rows: IndexInjection[] = []
+      ctx.emit('webserver/index-inject', rows)
+      expect(rows).toContainEqual({ kind: 'global', name: '__DSH_CONFIGURATION_AUTHORITY__', value: 'trusted-host' })
+    } finally {
+      await dispose()
+    }
+  })
+
+  it.each([
+    { config: { configurationAuthority: 'trusted-host' as const }, error: 'configurationAuthority "trusted-host" requires at least one trustedHosts authority' },
+    { config: { configurationAuthority: 'anyone' as never }, error: 'expected "loopback" | "trusted-host" but got "anyone"' },
+  ])('fails the load on a configuration authority it cannot honor: $config.configurationAuthority', async ({ config, error }) => {
+    const routes: WebRoute[] = []
+    const upgrades: WebUpgradeRoute[] = []
+    const ctx = new Context()
+    provideBrowserCredentials(ctx)
+    ctx.provide('webServer', fakeHttpServer(routes, upgrades) as WebServer)
+    const fiber = ctx.plugin({ inject: [...inject], apply }, config)
+    await expect(fiber).rejects.toThrow(error)
     expect(routes).toHaveLength(0)
   })
 

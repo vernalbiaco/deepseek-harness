@@ -412,6 +412,12 @@ export interface LaunchOptions {
    * 127.0.0.1; a non-resolving authority fails before Host trust is exercised.
    */
   remoteAuthority?: string
+  /**
+   * Let pages under {@link remoteAuthority} persist Settings, exactly as
+   * `dsh web --configuration-authority trusted-host` does. Requires
+   * {@link remoteAuthority}; the loopback default needs no option.
+   */
+  configurationAuthority?: 'trusted-host'
   /** Reuse an existing harness home so a second Host can verify user settings across origins. */
   harnessHome?: string
 }
@@ -608,7 +614,13 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
     { id: 'web-runtime', config: { openBrowser: false, printUrl: false, surfaceContext } },
     ...options.remoteAuthority === undefined
       ? []
-      : [{ id: 'connection', config: { trustedHosts: [options.remoteAuthority] } }],
+      : [{
+        id: 'connection',
+        config: {
+          trustedHosts: [options.remoteAuthority],
+          ...options.configurationAuthority === undefined ? {} : { configurationAuthority: options.configurationAuthority },
+        },
+      }],
     { id: 'settings', config: { dshHome: harnessHome } },
     { id: 'credentials', config: { dshHome: harnessHome } },
     // The shipped directory-picker row is the -auto chooser, which resolves

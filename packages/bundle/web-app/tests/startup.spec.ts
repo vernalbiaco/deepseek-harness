@@ -64,6 +64,7 @@ export const apply = ctx => globalThis.__webStartupApply(ctx)
     '    openBrowser: !!js ctx.webStartup.openBrowser',
     '    port: !!js ctx.webStartup.port ?? 3080',
     '    trustedHosts: !!js ctx.webStartup.trustedHosts',
+    '    configurationAuthority: !!js ctx.webStartup.configurationAuthority',
     '- id: provider',
     `  name: ${pathToFileURL(join(dir, 'provider.mjs')).href}`,
     '',
@@ -99,12 +100,14 @@ describe('web command-line provider', () => {
       '--port', '8080',
       '--trusted-host', 'lab.internal', 'lab-2.internal',
       '--trusted-host', '10.0.0.9',
+      '--configuration-authority', 'trusted-host',
     ])
     expect(values).toEqual({
       host: '127.0.0.1',
       openBrowser: false,
       port: 8080,
       trustedHosts: ['lab.internal', 'lab-2.internal', '10.0.0.9'],
+      configurationAuthority: 'trusted-host',
     })
     expect(observed.readerConfig).toEqual(values)
     expect(observed.exits).toEqual([])
@@ -112,12 +115,13 @@ describe('web command-line provider', () => {
 
   it('leaves deployment values to each consumer when flags omit them', async () => {
     const { values, observed } = await bootProvider([])
-    expect(values).toEqual({ openBrowser: true, trustedHosts: [] })
+    expect(values).toEqual({ openBrowser: true, trustedHosts: [], configurationAuthority: 'loopback' })
     expect(observed.readerConfig).toEqual({
       host: '127.0.0.1',
       openBrowser: true,
       port: 3080,
       trustedHosts: [],
+      configurationAuthority: 'loopback',
     })
   })
 
@@ -126,6 +130,7 @@ describe('web command-line provider', () => {
     expect(observed.out).toContain('dsh --profile web')
     expect(observed.out).toContain('--no-open')
     expect(observed.out).toContain('--trusted-host')
+    expect(observed.out).toContain('--configuration-authority')
     expect(values).toBeUndefined()
     expect(observed.readerConfig).toBeUndefined()
     expect(observed.exits).toEqual([0])
@@ -134,6 +139,17 @@ describe('web command-line provider', () => {
   it('rejects a non-numeric port before the consumer activates', async () => {
     const { values, observed } = await bootProvider(['--port', 'abc'])
     expect(observed.out).toContain('--port must be a number')
+    expect(values).toBeUndefined()
+    expect(observed.readerConfig).toBeUndefined()
+    expect(observed.exits).toEqual([1])
+  })
+
+  it.each([
+    { args: ['--configuration-authority', 'everyone', '--trusted-host', 'lab.internal'], message: '--configuration-authority must be one of loopback, trusted-host, got "everyone"' },
+    { args: ['--configuration-authority', 'trusted-host'], message: '--configuration-authority trusted-host extends Settings to the --trusted-host authorities, so at least one --trusted-host is required' },
+  ])('rejects a configuration authority it cannot honor before the consumer activates: $args', async ({ args, message }) => {
+    const { values, observed } = await bootProvider(args)
+    expect(observed.out).toContain(message)
     expect(values).toBeUndefined()
     expect(observed.readerConfig).toBeUndefined()
     expect(observed.exits).toEqual([1])

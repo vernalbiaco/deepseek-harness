@@ -6,12 +6,13 @@ import { SettingsSchemaService } from '../src/client/schema.ts'
 import { SettingsScopeBinder } from '../src/client/settings-scope.ts'
 import { apply as hostApply } from '../src/index.ts'
 
-function bench() {
+function bench(host: { isLoopback: boolean; configurable: boolean } = { isLoopback: true, configurable: true }) {
   const describeCall = vi.fn().mockResolvedValue({
     ok: true, value: { writable: true, hasDocument: true, namespaces: [] },
   })
   const ctx = new Context()
   const remote = new TestRemote(ctx, { settings: { describe: describeCall } })
+  remote.$host = { home: undefined, ...host }
   return { ctx, describeCall, remote, fiber: ctx.plugin({ inject: [...inject], apply }) }
 }
 
@@ -26,6 +27,22 @@ describe('settings domain base plugin', () => {
     expect(ctx.get('settingsScope')).toBeInstanceOf(SettingsScopeBinder)
     expect(ctx.get('settingsSchema')).toBeInstanceOf(SettingsSchemaService)
     await vi.waitFor(() => { expect(describeCall).toHaveBeenCalledTimes(1) })
+  })
+
+  it('reads Host settings from a trusted non-loopback page the Host made configurable', async () => {
+    const { ctx, describeCall, fiber } = bench({ isLoopback: false, configurable: true })
+    await fiber.await()
+    await vi.waitFor(() => { expect(describeCall).toHaveBeenCalledTimes(1) })
+    await vi.waitFor(() => { expect(ctx.settingsScope.describe().getSnapshot().status).toBe('ready') })
+  })
+
+  it('keeps a page that is not configurable in memory without reading the Host', async () => {
+    const { ctx, describeCall, fiber } = bench({ isLoopback: false, configurable: false })
+    await fiber.await()
+    expect(ctx.settingsScope.describe().getSnapshot().status).toBe('unavailable')
+    ctx.emit('connection/reset')
+    await Promise.resolve()
+    expect(describeCall).not.toHaveBeenCalled()
   })
 
   it('refreshes the mirror on document commits and connection resets, once each', async () => {

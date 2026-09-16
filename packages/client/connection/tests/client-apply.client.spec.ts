@@ -134,6 +134,28 @@ describe('connection client apply', () => {
     expect((await mount()).isLoopback).toBe(false)
   })
 
+  it('keeps Host configuration to loopback pages when the Host injects no configuration authority', async () => {
+    ;(globalThis as Win).location = { hostname: 'harness.localhost' }
+    const remote = await mount()
+    expect({ isLoopback: remote.isLoopback, configurable: remote.configurable }).toEqual({ isLoopback: false, configurable: false })
+    ;(globalThis as Win).location = { hostname: 'localhost' }
+    expect((await mount()).configurable).toBe(true)
+  })
+
+  it('lets a trusted page persist configuration under the trusted-host authority without claiming loopback', async () => {
+    ;(globalThis as Win).location = { hostname: 'harness.localhost' }
+    vi.stubGlobal('__DSH_CONFIGURATION_AUTHORITY__', 'trusted-host')
+    const handle = await mount()
+    expect({ isLoopback: handle.isLoopback, configurable: handle.configurable }).toEqual({ isLoopback: false, configurable: true })
+  })
+
+  it('rejects a malformed configuration authority before publishing the service', () => {
+    vi.stubGlobal('__DSH_CONFIGURATION_AUTHORITY__', 'everyone')
+    const ctx = new Context()
+    expect(() => { apply(ctx) }).toThrow('expected "loopback" | "trusted-host" but got "everyone"')
+    expect(ctx.get('connection')).toBeUndefined()
+  })
+
   it('requires one generation source and ignores a stale source disposer', async () => {
     ;(globalThis as Win).location = { hostname: 'localhost' }
     const handle = await mount()
