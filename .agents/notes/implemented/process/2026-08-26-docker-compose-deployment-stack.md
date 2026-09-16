@@ -52,11 +52,11 @@ Mode is a property of a Compose file set, so every `make` target that touches a 
 
 ### Third-party plugin patches
 
-[`patches/dsh-llm-local-token/`](../../../../patches/dsh-llm-local-token/README.md) holds patched modules for a third-party plugin at a pinned version, applied only by `make docker-patch-plugins`. They are not pnpm `patchedDependencies`: the plugin is installed at runtime into a profile inside the `dsh-home` volume, which no install-time mechanism reaches.
+[`patches/dsh-llm-local-token/`](../../../../patches/dsh-llm-local-token/README.md) holds patched modules for a third-party plugin, applied only by `make docker-patch-plugins`. They are not pnpm `patchedDependencies`: the plugin is installed at runtime into a profile inside the `dsh-home` volume, which no install-time mechanism reaches.
 
 Both fixes concern credential ownership. Upstream reads the current Claude credential shape from the macOS Keychain alone, so on Linux the route registers as absent with no error; and its Codex write-back preserves file mode but not owner, so a root-run refresh leaves a root-owned credential the host CLI can no longer read. Each rewrite preserves the file's owner and mode and keeps sibling fields intact, because the host CLI and the container share one file. The Claude fix stores the true expiry rather than expiry-minus-skew, since the official CLI reads that same field.
 
-A `dsh plugin` install or update replaces the whole package directory and silently drops these modules, taking the affected route with them. `make docker-check-plugins` reports the registered routes so the loss is observable rather than inferred.
+A `dsh plugin` install or update replaces the whole package directory and silently drops these modules, taking the affected route with them. `make docker-check-plugins` reports the registered routes so the loss is observable rather than inferred. The apply step compares each installed module against the upstream hash its patched copy was built on and stops the run on any mismatch, so a release that rewrites a module is named rather than buried under a copy built on an older one.
 
 ### Publishing images to Amazon ECR
 

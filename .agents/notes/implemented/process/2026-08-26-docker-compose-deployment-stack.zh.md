@@ -52,11 +52,11 @@ Status: implemented
 
 ### 第三方插件补丁
 
-[`patches/dsh-llm-local-token/`](../../../../patches/dsh-llm-local-token/README.zh.md) 收录某第三方插件在锁定版本上的已打补丁模块，仅由 `make docker-patch-plugins` 应用。它们不是 pnpm 的 `patchedDependencies`：该插件在运行时被安装进 `dsh-home` 卷内的某个 Profile，任何安装期机制都触及不到那里。
+[`patches/dsh-llm-local-token/`](../../../../patches/dsh-llm-local-token/README.zh.md) 收录某第三方插件的已打补丁模块，仅由 `make docker-patch-plugins` 应用。它们不是 pnpm 的 `patchedDependencies`：该插件在运行时被安装进 `dsh-home` 卷内的某个 Profile，任何安装期机制都触及不到那里。
 
 两处修复都关乎凭据归属。上游仅从 macOS Keychain 读取当前的 Claude 凭据结构，因此在 Linux 上该路由会以「不存在」的状态注册且毫无报错；而它的 Codex 写回保留文件权限位却不保留属主，因此一次以 root 身份执行的刷新会留下宿主机 CLI 再也无法读取的 root 属主凭据。每处重写都保留文件的属主与权限位，并保持同级字段不变，因为宿主机 CLI 与容器共用同一个文件。Claude 的修复存储真实过期时间而非过期时间减去偏移量，因为官方 CLI 读取的正是同一字段。
 
-一次 `dsh plugin` 安装或更新会替换整个包目录并静默丢弃这些模块，相应路由也随之消失。`make docker-check-plugins` 会报告已注册的路由，使这种丢失可被观察到而非只能靠推断。
+一次 `dsh plugin` 安装或更新会替换整个包目录并静默丢弃这些模块，相应路由也随之消失。`make docker-check-plugins` 会报告已注册的路由，使这种丢失可被观察到而非只能靠推断。应用步骤会把每个已安装模块与其补丁副本所依据的上游哈希比对，一旦不符便停止运行，因此某个发布版本重写了模块时会被指名，而不是被基于更早底本的副本掩盖。
 
 ### 向 Amazon ECR 发布镜像
 

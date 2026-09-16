@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write patches/dsh-llm-local-token/README.md
-README.md: bd1a455de65bd7ba281791c3f449eb80965530d0
-README.zh.md: 049b17e0848f76eb1af2476993b040762a622593
+README.md: 3df5c04d3fe57c2fb0f8497858afd87d7cf6093f
+README.zh.md: 27ca3f0ce0eee1102dff108e93fb18fe375c2160

@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-针对第三方插件 [`dsh-llm-local-token`](https://github.com/tianxia--/dsh-llm-local-token) 的本地修复，锁定在 **1.3.2**（截至 2026-08-26 的最新发布版本）。
+针对第三方插件 [`dsh-llm-local-token`](https://github.com/tianxia--/dsh-llm-local-token) 两个模块的本地修复。已发布的 **1.3.2** 与 **1.5.1** 附带的这两个模块逐字节相同，因此同一份打过补丁的副本对两个版本都适用。
 
 它们**不是** pnpm 依赖补丁。同级目录下的 `patches/*.patch` 属于 `pnpm-workspace.yaml` 中的 `patchedDependencies`，在安装时应用于工作区依赖。而此处的文件替换的是某个插件的两个模块，该插件在运行时安装进 dsh Profile，位于 `dsh-home` Docker 卷中，而非本仓库的 `node_modules`。没有任何环节会自动应用它们，只有 `make docker-patch-plugins` 会。
 
@@ -32,6 +32,8 @@ make docker-patch-plugins     # copy into every running profile, then restart
 ```
 
 该目标按 Compose 标签找到正在运行的 `web` 与 `api` 容器，把两个模块复制进各自 Profile 的 `dsh-llm-local-token` 安装目录，重启容器以便运行中的进程加载它们，并重启其 `-proxy` 边车，使边车重新加入被重启替换的网络命名空间。它不读取任何 Compose 文件集合，因此不会重建或重新构建任何内容，可从任意检出或 worktree 运行；当有多个 Compose 项目运行 dsh 镜像时，用 `DSH_STACK_PROJECT` 指定要打补丁的项目。若某个服务对应的 Profile 未安装该插件，则会被报告并跳过。
+
+在复制之前，该目标会对每个已安装模块取哈希——若此前的运行留下了 `.orig` 备份则取该备份，否则取已安装的文件——并与 `docker/plugin-patches.sh` 中记录的上游哈希比对。若某个发布版本改动了其中任一模块，运行会停止并指出该模块与已安装的版本号，且不会向任何服务复制任何文件：基于不同底本制作的补丁副本会静默丢弃该发布版本自身的改动。
 
 在对该包执行任何 `dsh plugin ... add`、更新或重新安装之后都需要重新应用：pnpm 会替换整个包目录，因此打过补丁的模块会被静默覆盖，Claude 路由随之再次消失。可用 `make docker-check-plugins` 验证，它会列出已注册的路由——健康的 `web` 或 `api` 服务会同时报告 `openai-codex` 与 `anthropic`。
 

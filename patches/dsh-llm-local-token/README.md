@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-Local fixes for the third-party [`dsh-llm-local-token`](https://github.com/tianxia--/dsh-llm-local-token) plugin, pinned at **1.3.2** (the latest published version as of 2026-08-26).
+Local fixes for two modules of the third-party [`dsh-llm-local-token`](https://github.com/tianxia--/dsh-llm-local-token) plugin. Published **1.3.2** and **1.5.1** ship both modules byte-identical, so one patched copy serves either release.
 
 These are **not** pnpm dependency patches. The sibling `patches/*.patch` files belong to `patchedDependencies` in `pnpm-workspace.yaml` and are applied at install time to workspace dependencies. The files here replace two modules of a plugin installed at runtime into a dsh profile, which lives in the `dsh-home` Docker volume rather than in this repository's `node_modules`. Nothing applies them automatically; `make docker-patch-plugins` does.
 
@@ -32,6 +32,8 @@ make docker-patch-plugins     # copy into every running profile, then restart
 ```
 
 The target finds the running `web` and `api` containers by their Compose labels, copies both modules into each profile's `dsh-llm-local-token` installation, restarts the container so the running process loads them, and restarts its `-proxy` sidecar so the sidecar rejoins the restarted network namespace. It reads no Compose file set, so it recreates and rebuilds nothing and works from any checkout or worktree; when more than one Compose project runs the dsh image, `DSH_STACK_PROJECT` names the one to patch. A service whose profile does not have the plugin installed is reported and skipped.
+
+Before copying, the target hashes each installed module — the `.orig` backup when a previous run made one, otherwise the installed file — and compares it against the upstream hash recorded in `docker/plugin-patches.sh`. A release that changes either module stops the run, naming the module and the installed version, and nothing is copied to any service: a patched copy built on a different base would silently drop that release's own changes.
 
 Reapply after any `dsh plugin ... add`, update, or reinstall of this package: pnpm replaces the whole package directory, so the patched modules are silently overwritten and the Claude route disappears again. Verify with `make docker-check-plugins`, which lists the registered routes — a healthy `web` or `api` service reports both `openai-codex` and `anthropic`.
 
